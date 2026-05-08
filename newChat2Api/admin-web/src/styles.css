@@ -173,6 +173,16 @@ nav button.active, nav button:hover {
   gap: 12px;
 }
 
+.toolbar, .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.toolbar {
+  margin-bottom: 14px;
+}
+
 .between {
   justify-content: space-between;
 }

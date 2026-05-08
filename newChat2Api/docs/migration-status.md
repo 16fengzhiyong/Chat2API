@@ -9,6 +9,7 @@
 - Reporter APIs for desktop reporter registration, heartbeat, and account upload.
 - OpenAI-compatible endpoints for `/v1/chat/completions`, `/v1/completions`, `/v1/models`, and `/v1/models/{model}`.
 - Web admin shell for dashboard, providers, accounts, API keys, model mappings, sessions, prompts/tool calling, logs, and settings.
+- Web admin management actions for provider/account JSON create-edit-delete, account validation, API key creation/deletion, model mapping CRUD, session deletion/clear, system prompt CRUD, tool/context config save, and data import/export.
 - Electron reporter shell for backend binding, provider login, cookie/localStorage/header extraction, manual JSON fallback, heartbeat, and account upload.
 - Backend session management with multi-turn history persistence, timeout configuration, and session management APIs.
 - Backend context management with sliding-window and token-limit trimming configuration.
