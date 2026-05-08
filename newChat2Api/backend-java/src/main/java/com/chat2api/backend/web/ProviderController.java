@@ -4,6 +4,7 @@ import com.chat2api.backend.domain.ProviderEntity;
 import com.chat2api.backend.domain.ProviderType;
 import com.chat2api.backend.repository.ProviderRepository;
 import com.chat2api.backend.service.IdService;
+import com.chat2api.backend.service.ProviderMaintenanceService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,10 +24,12 @@ import java.util.Map;
 public class ProviderController {
     private final ProviderRepository providerRepository;
     private final IdService idService;
+    private final ProviderMaintenanceService providerMaintenanceService;
 
-    public ProviderController(ProviderRepository providerRepository, IdService idService) {
+    public ProviderController(ProviderRepository providerRepository, IdService idService, ProviderMaintenanceService providerMaintenanceService) {
         this.providerRepository = providerRepository;
         this.idService = idService;
+        this.providerMaintenanceService = providerMaintenanceService;
     }
 
     @GetMapping
@@ -75,22 +78,17 @@ public class ProviderController {
 
     @PostMapping("/{id}/models/refresh")
     public ApiResponse<ProviderEntity> refreshModels(@PathVariable String id) {
-        ProviderEntity provider = providerRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("Provider not found: " + id));
-        provider.setLastStatusCheck(Instant.now());
-        provider.setUpdatedAt(Instant.now());
-        return ApiResponse.ok(providerRepository.save(provider));
+        return ApiResponse.ok(providerMaintenanceService.refreshModels(id));
     }
 
     @PostMapping("/{id}/clear-chats")
     public ApiResponse<Map<String, Object>> clearChats(@PathVariable String id) {
-        ProviderEntity provider = providerRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("Provider not found: " + id));
-        return ApiResponse.ok(Map.of("providerId", provider.getId(), "cleared", true, "message", "Provider-specific clear chat adapter is ready to be connected"));
+        return ApiResponse.ok(providerMaintenanceService.clearChats(id));
     }
 
     @GetMapping("/{id}/credits")
     public ApiResponse<Map<String, Object>> credits(@PathVariable String id) {
-        ProviderEntity provider = providerRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("Provider not found: " + id));
-        return ApiResponse.ok(Map.of("providerId", provider.getId(), "supported", "minimax".equals(provider.getVendor()), "credits", Map.of()));
+        return ApiResponse.ok(providerMaintenanceService.credits(id));
     }
 
     @DeleteMapping("/{id}")

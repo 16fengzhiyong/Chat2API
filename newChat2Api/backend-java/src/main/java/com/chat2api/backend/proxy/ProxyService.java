@@ -2,8 +2,11 @@ package com.chat2api.backend.proxy;
 
 import com.chat2api.backend.domain.RequestLogEntity;
 import com.chat2api.backend.service.AccountService;
+import com.chat2api.backend.service.ContextManagementService;
 import com.chat2api.backend.service.LoadBalancerService;
 import com.chat2api.backend.service.RequestLogService;
+import com.chat2api.backend.service.SessionService;
+import com.chat2api.backend.service.ToolCallingService;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -16,12 +19,18 @@ public class ProxyService {
     private final LoadBalancerService loadBalancerService;
     private final AccountService accountService;
     private final RequestLogService requestLogService;
+    private final SessionService sessionService;
+    private final ContextManagementService contextManagementService;
+    private final ToolCallingService toolCallingService;
     private final List<ProviderForwarder> forwarders;
 
-    public ProxyService(LoadBalancerService loadBalancerService, AccountService accountService, RequestLogService requestLogService, List<ProviderForwarder> forwarders) {
+    public ProxyService(LoadBalancerService loadBalancerService, AccountService accountService, RequestLogService requestLogService, SessionService sessionService, ContextManagementService contextManagementService, ToolCallingService toolCallingService, List<ProviderForwarder> forwarders) {
         this.loadBalancerService = loadBalancerService;
         this.accountService = accountService;
         this.requestLogService = requestLogService;
+        this.sessionService = sessionService;
+        this.contextManagementService = contextManagementService;
+        this.toolCallingService = toolCallingService;
         this.forwarders = forwarders;
     }
 
@@ -41,7 +50,16 @@ public class ProxyService {
             log.setActualModel(selection.actualModel());
             Map<String, String> credentials = accountService.credentials(selection.account().getId());
             ProviderForwarder forwarder = forwarders.stream().filter(item -> item.supports(selection.provider().getVendor())).findFirst().orElseThrow();
-            ForwardResult result = forwarder.forward(selection.provider(), selection.account(), credentials, request, selection.actualModel());
+            SessionService.SessionContext sessionContext = sessionService.prepare(request, selection.provider().getId(), selection.account().getId(), selection.actualModel());
+            Map<String, Object> sessionRequest = sessionContext.request();
+            Map<String, Object> contextRequest = contextManagementService.apply(sessionRequest);
+            ToolCallingService.TransformResult toolTransform = toolCallingService.transformRequest(contextRequest);
+            ForwardResult result = forwarder.forward(selection.provider(), selection.account(), credentials, toolTransform.request(), selection.actualModel());
+            String responseBody = toolCallingService.applyNonStreamResponse(result.body(), toolTransform);
+            if (result.success()) {
+                result = ForwardResult.ok(result.statusCode(), result.contentType(), responseBody);
+                sessionService.complete(sessionContext, sessionRequest, responseBody);
+            }
             log.setLatency(Duration.between(startedAt, Instant.now()).toMillis());
             log.setStatus(result.success() ? "success" : "failed");
             log.setStatusCode(result.statusCode());

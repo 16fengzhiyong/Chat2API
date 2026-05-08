@@ -8,4 +8,5 @@ import java.util.List;
 public interface SessionRepository extends JpaRepository<SessionEntity, String> {
     List<SessionEntity> findByProviderId(String providerId);
     List<SessionEntity> findByAccountId(String accountId);
+    List<SessionEntity> findByProviderIdAndAccountId(String providerId, String accountId);
 }

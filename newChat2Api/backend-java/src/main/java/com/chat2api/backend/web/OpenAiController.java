@@ -5,6 +5,7 @@ import com.chat2api.backend.proxy.ProxyService;
 import com.chat2api.backend.repository.ModelMappingRepository;
 import com.chat2api.backend.repository.ProviderRepository;
 import com.chat2api.backend.service.ApiKeyService;
+import com.chat2api.backend.service.OpenAiResponseService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -25,12 +26,14 @@ public class OpenAiController {
     private final ProviderRepository providerRepository;
     private final ModelMappingRepository modelMappingRepository;
     private final ApiKeyService apiKeyService;
+    private final OpenAiResponseService openAiResponseService;
 
-    public OpenAiController(ProxyService proxyService, ProviderRepository providerRepository, ModelMappingRepository modelMappingRepository, ApiKeyService apiKeyService) {
+    public OpenAiController(ProxyService proxyService, ProviderRepository providerRepository, ModelMappingRepository modelMappingRepository, ApiKeyService apiKeyService, OpenAiResponseService openAiResponseService) {
         this.proxyService = proxyService;
         this.providerRepository = providerRepository;
         this.modelMappingRepository = modelMappingRepository;
         this.apiKeyService = apiKeyService;
+        this.openAiResponseService = openAiResponseService;
     }
 
     @GetMapping("/")
@@ -49,6 +52,11 @@ public class OpenAiController {
             return ResponseEntity.status(401).contentType(MediaType.APPLICATION_JSON).body(openAiError("Invalid API key"));
         }
         ForwardResult result = proxyService.chatCompletion(request);
+        if (Boolean.TRUE.equals(request.get("stream"))) {
+            return ResponseEntity.status(result.statusCode())
+                    .header(HttpHeaders.CONTENT_TYPE, "text/event-stream; charset=utf-8")
+                    .body(result.success() ? openAiResponseService.toStream(result.body(), String.valueOf(request.getOrDefault("model", ""))) : "data: " + openAiError(result.errorMessage()) + "\n\ndata: [DONE]\n\n");
+        }
         return ResponseEntity.status(result.statusCode())
                 .header(HttpHeaders.CONTENT_TYPE, result.contentType() == null ? MediaType.APPLICATION_JSON_VALUE : result.contentType())
                 .body(result.success() ? result.body() : openAiError(result.errorMessage()));

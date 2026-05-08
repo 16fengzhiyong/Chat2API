@@ -27,7 +27,7 @@ public abstract class BaseProviderForwarder implements ProviderForwarder {
         try {
             Map<String, Object> outgoing = buildRequest(provider, account, credentials, request, actualModel);
             HttpHeaders headers = buildHeaders(provider, credentials);
-            URI uri = URI.create(endpoint(provider));
+            URI uri = URI.create(endpoint(provider, outgoing));
             ResponseEntity<String> response = restTemplate.exchange(uri, HttpMethod.POST, new HttpEntity<>(objectMapper.writeValueAsString(outgoing), headers), String.class);
             return ForwardResult.ok(response.getStatusCode().value(), response.getHeaders().getContentType() == null ? MediaType.APPLICATION_JSON_VALUE : response.getHeaders().getContentType().toString(), response.getBody());
         } catch (Exception error) {
@@ -37,6 +37,10 @@ public abstract class BaseProviderForwarder implements ProviderForwarder {
 
     protected String endpoint(ProviderEntity provider) {
         return provider.getApiEndpoint() + provider.getChatPath();
+    }
+
+    protected String endpoint(ProviderEntity provider, Map<String, Object> request) {
+        return endpoint(provider);
     }
 
     protected Map<String, Object> buildRequest(ProviderEntity provider, AccountEntity account, Map<String, String> credentials, Map<String, Object> request, String actualModel) {

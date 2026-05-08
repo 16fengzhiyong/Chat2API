@@ -2,7 +2,7 @@ package com.chat2api.backend.web;
 
 import com.chat2api.backend.domain.AppConfigEntity;
 import com.chat2api.backend.repository.AppConfigRepository;
-import com.chat2api.backend.service.ToolCallingService;
+import com.chat2api.backend.service.ContextManagementService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -13,27 +13,26 @@ import java.time.Instant;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/tool-calling")
-public class ToolCallingController {
-    private static final String CONFIG_KEY = "toolCalling";
+@RequestMapping("/api/context-management")
+public class ContextManagementController {
     private final AppConfigRepository appConfigRepository;
-    private final ToolCallingService toolCallingService;
+    private final ContextManagementService contextManagementService;
 
-    public ToolCallingController(AppConfigRepository appConfigRepository, ToolCallingService toolCallingService) {
+    public ContextManagementController(AppConfigRepository appConfigRepository, ContextManagementService contextManagementService) {
         this.appConfigRepository = appConfigRepository;
-        this.toolCallingService = toolCallingService;
+        this.contextManagementService = contextManagementService;
     }
 
     @GetMapping
     public ApiResponse<Map<String, Object>> get() {
-        return ApiResponse.ok(toolCallingService.config());
+        return ApiResponse.ok(contextManagementService.config());
     }
 
     @PostMapping
     public ApiResponse<AppConfigEntity> save(@RequestBody Map<String, Object> request) {
         AppConfigEntity entity = new AppConfigEntity();
-        entity.setConfigKey(CONFIG_KEY);
-        entity.setConfigValue(String.valueOf(request.getOrDefault("value", toolCallingService.defaultConfigJson())));
+        entity.setConfigKey("contextManagement");
+        entity.setConfigValue(String.valueOf(request.getOrDefault("value", contextManagementService.defaultConfigJson())));
         entity.setUpdatedAt(Instant.now());
         return ApiResponse.ok(appConfigRepository.save(entity));
     }

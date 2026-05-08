@@ -30,7 +30,8 @@ function App() {
   const [mappings, setMappings] = useState<Record<string, unknown>[]>([])
   const [sessions, setSessions] = useState<SessionRecord[]>([])
   const [prompts, setPrompts] = useState<SystemPrompt[]>([])
-  const [toolCalling, setToolCalling] = useState('')
+  const [toolCalling, setToolCalling] = useState<Record<string, unknown>>({})
+  const [contextManagement, setContextManagement] = useState<Record<string, unknown>>({})
   const [config, setConfig] = useState<AdminConfig>(getConfig())
 
   const providerMap = useMemo(() => new Map(providers.map((provider) => [provider.id, provider])), [providers])
@@ -39,7 +40,7 @@ function App() {
     setLoading(true)
     setMessage('')
     try {
-      const [healthData, providerData, accountData, keyData, logData, statData, mappingData, sessionData, promptData, toolCallingData] = await Promise.all([
+      const [healthData, providerData, accountData, keyData, logData, statData, mappingData, sessionData, promptData, toolCallingData, contextManagementData] = await Promise.all([
         api.health(),
         api.providers(),
         api.accounts(),
@@ -50,6 +51,7 @@ function App() {
         api.sessions(),
         api.systemPrompts(),
         api.toolCalling(),
+        api.contextManagement(),
       ])
       setHealth(healthData)
       setProviders(providerData)
@@ -61,6 +63,7 @@ function App() {
       setSessions(sessionData)
       setPrompts(promptData)
       setToolCalling(toolCallingData)
+      setContextManagement(contextManagementData)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '加载失败')
     } finally {
@@ -80,6 +83,23 @@ function App() {
   async function checkProvider(id: string) {
     await api.checkProvider(id)
     await refresh()
+  }
+
+  async function refreshProviderModels(id: string) {
+    await api.refreshProviderModels(id)
+    setMessage('模型刷新已触发')
+    await refresh()
+  }
+
+  async function clearProviderChats(id: string) {
+    const result = await api.clearProviderChats(id)
+    setMessage(JSON.stringify(result))
+    await refresh()
+  }
+
+  async function showProviderCredits(id: string) {
+    const result = await api.providerCredits(id)
+    setMessage(JSON.stringify(result))
   }
 
   async function validateAccount(id: string) {
@@ -151,7 +171,12 @@ function App() {
                 </div>
                 <p>{provider.apiEndpoint}{provider.chatPath}</p>
                 <p>模型：{provider.supportedModels?.join(', ') || '-'}</p>
-                <button onClick={() => checkProvider(provider.id)}>检查状态</button>
+                <div className="actions">
+                  <button onClick={() => checkProvider(provider.id)}>检查状态</button>
+                  <button onClick={() => refreshProviderModels(provider.id)}>刷新模型</button>
+                  <button onClick={() => showProviderCredits(provider.id)}>额度</button>
+                  <button onClick={() => clearProviderChats(provider.id)}>清空聊天</button>
+                </div>
               </article>
             ))}
           </section>
@@ -203,7 +228,9 @@ function App() {
         {tab === 'prompts' && (
           <section className="table-panel">
             <h3>Tool Calling</h3>
-            <pre className="code-block">{toolCalling}</pre>
+            <pre className="code-block">{JSON.stringify(toolCalling, null, 2)}</pre>
+            <h3>Context Management</h3>
+            <pre className="code-block">{JSON.stringify(contextManagement, null, 2)}</pre>
             <table>
               <thead><tr><th>名称</th><th>分类</th><th>启用</th><th>内置</th><th>内容</th></tr></thead>
               <tbody>{prompts.map((prompt) => <tr key={prompt.id}><td>{prompt.name}</td><td>{prompt.category || '-'}</td><td>{prompt.enabled ? '是' : '否'}</td><td>{prompt.builtin ? '是' : '否'}</td><td>{prompt.content}</td></tr>)}</tbody>
