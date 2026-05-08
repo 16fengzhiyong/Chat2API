@@ -30,7 +30,11 @@ Spring Boot backend for the three-tier Chat2API migration.
 ## Run
 
 ```bash
-mvn spring-boot:run
+gradlew.bat bootRun
 ```
 
-The current environment used during implementation did not have Maven on `PATH`, so backend compilation must be verified after Maven is installed or through an IDE with Maven support.
+Build verification:
+
+```bash
+gradlew.bat build
+```
