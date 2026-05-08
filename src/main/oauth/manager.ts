@@ -327,6 +327,19 @@ export class OAuthManager extends EventEmitter {
 
       let validationTimeout: NodeJS.Timeout | null = null
 
+      const stringifyCookies = (cookies: unknown): string => {
+        if (typeof cookies === 'string') {
+          return cookies
+        }
+        if (cookies && typeof cookies === 'object') {
+          return Object.entries(cookies as Record<string, string>)
+            .filter(([, value]) => value)
+            .map(([key, value]) => `${key}=${value}`)
+            .join('; ')
+        }
+        return ''
+      }
+
       const tokenFoundHandler = async (event: { key: string; value: string; allCookies?: Record<string, string> }) => {
         console.log('[OAuthManager] tokenFoundHandler called, isValidating:', isValidating, 'event:', event.key, event.value.substring(0, 50) + '...')
 
@@ -413,8 +426,35 @@ export class OAuthManager extends EventEmitter {
           }
         }
 
+        if (providerType === 'qwen-ai') {
+          if (!collectedTokens.cookies) {
+            console.log('[OAuthManager] Qwen AI: got token, waiting for full cookies...')
+            if (validationTimeout) {
+              clearTimeout(validationTimeout)
+            }
+            validationTimeout = setTimeout(() => {
+              if (!collectedTokens.cookies) {
+                console.log('[OAuthManager] Qwen AI: full cookies not collected yet')
+              } else {
+                console.log('[OAuthManager] Qwen AI: full cookies collected, validating...')
+                validateAndComplete()
+              }
+            }, 1000)
+            return
+          }
+
+          if (!isValidating) {
+            console.log('[OAuthManager] Qwen AI: validating with full cookies...')
+            if (validationTimeout) {
+              clearTimeout(validationTimeout)
+            }
+            validateAndComplete()
+            return
+          }
+        }
+
         // For non-MiniMax/Mimo providers, validate immediately when we have a token
-        if (providerType !== 'minimax' && providerType !== 'mimo') {
+        if (providerType !== 'minimax' && providerType !== 'mimo' && providerType !== 'qwen-ai') {
           if (isValidating) {
             console.log('[OAuthManager] Already validating, skipping')
             return
@@ -482,6 +522,29 @@ export class OAuthManager extends EventEmitter {
               ph_token: phToken,
             }
             console.log('[OAuthManager] Mimo: Final credentials prepared:', Object.keys(finalCredentials))
+          } else if (providerType === 'qwen-ai') {
+            const cookies = stringifyCookies(collectedTokens.cookies)
+            const token = collectedTokens.token
+
+            if (!cookies) {
+              console.log('[OAuthManager] Qwen AI: Missing full cookies, aborting validation')
+              this.sendProgressToRenderer({
+                status: 'pending',
+                message: 'Waiting for full cookies...',
+              })
+              isValidating = false
+              return
+            }
+
+            validationCredentials = {
+              ...(token ? { token } : {}),
+              cookies,
+            }
+            finalCredentials = {
+              ...(token ? { token } : {}),
+              cookies,
+            }
+            console.log('[OAuthManager] Qwen AI: Final credentials prepared:', Object.keys(finalCredentials))
           } else {
             validationCredentials = { ...collectedTokens }
             finalCredentials = { ...collectedTokens }
