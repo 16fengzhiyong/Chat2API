@@ -6,10 +6,10 @@ The backend is a Spring Boot 3.3 / Java 17 application.
 
 ```bash
 cd backend-java
-mvn spring-boot:run
+gradlew.bat bootRun
 ```
 
-If `mvn` is not available on Windows, install Maven and ensure `mvn` is on `PATH`, or run the project from an IDE with Maven support.
+Use `./gradlew bootRun` on macOS/Linux.
 
 Default management credentials:
 

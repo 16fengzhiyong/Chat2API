@@ -22,7 +22,7 @@ export CHAT2API_ADMIN_PASSWORD='change-me'
 
 ```bash
 cd backend-java
-mvn clean package -DskipTests
+./gradlew clean bootJar -x test
 ```
 
 ## systemd service

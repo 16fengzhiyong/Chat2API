@@ -103,8 +103,20 @@ function App() {
   }
 
   async function validateAccount(id: string) {
-    await api.validateAccount(id)
+    const result = await api.validateAccount(id)
+    setMessage(JSON.stringify(result))
     await refresh()
+  }
+
+  function accountBadgeClass(status: string) {
+    const normalized = status.toLowerCase()
+    if (normalized === 'active') {
+      return 'badge ok'
+    }
+    if (normalized === 'error' || normalized === 'expired') {
+      return 'badge danger'
+    }
+    return 'badge warn'
   }
 
   function updateSettings(event: FormEvent) {
@@ -190,7 +202,7 @@ function App() {
                   <tr key={account.id}>
                     <td>{account.name}<br /><small>{account.email || account.id}</small></td>
                     <td>{providerMap.get(account.providerId)?.name || account.providerId}</td>
-                    <td><span className="badge ok">{account.status}</span></td>
+                    <td><span className={accountBadgeClass(account.status)} title={account.errorMessage || ''}>{account.status}</span></td>
                     <td>{account.todayUsed}/{account.dailyLimit || '∞'}</td>
                     <td>{account.requestCount}</td>
                     <td><button onClick={() => validateAccount(account.id)}>校验</button></td>

@@ -2,6 +2,7 @@ package com.chat2api.backend.web;
 
 import com.chat2api.backend.domain.AccountEntity;
 import com.chat2api.backend.service.AccountService;
+import com.chat2api.backend.service.AccountValidationService;
 import com.chat2api.backend.service.RedactionService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,10 +20,12 @@ import java.util.Map;
 @RequestMapping("/api/accounts")
 public class AccountController {
     private final AccountService accountService;
+    private final AccountValidationService accountValidationService;
     private final RedactionService redactionService;
 
-    public AccountController(AccountService accountService, RedactionService redactionService) {
+    public AccountController(AccountService accountService, AccountValidationService accountValidationService, RedactionService redactionService) {
         this.accountService = accountService;
+        this.accountValidationService = accountValidationService;
         this.redactionService = redactionService;
     }
 
@@ -55,8 +58,7 @@ public class AccountController {
 
     @PostMapping("/{id}/validate")
     public ApiResponse<Map<String, Object>> validate(@PathVariable String id) {
-        accountService.get(id);
-        return ApiResponse.ok(Map.of("valid", true, "message", "Validation endpoint is ready for provider-specific adapters"));
+        return ApiResponse.ok(accountValidationService.validate(id));
     }
 
     @DeleteMapping("/{id}")
