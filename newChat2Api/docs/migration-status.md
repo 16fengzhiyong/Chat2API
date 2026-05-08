@@ -27,13 +27,13 @@ The current backend contains a provider adapter registry and built-in provider f
 - Qwen and Qwen AI cookie/session behavior, record mode, dynamic chat endpoints, stream parsing, clear chat.
 - MiniMax JWT + realUserID behavior, signing, credits API, clear chat.
 - Mimo multi-cookie validation, query format, stream parsing, clear chat.
-- Z.ai private API format, stream parsing, clear chat.
+- Z.ai private API format, create-chat handshake, request signing, browser fingerprint query, clear chat, and basic SSE-to-OpenAI parsing.
 - Perplexity SSE/search response handling.
 
 ## Current precision limits
 
 - DeepSeek, GLM, Kimi, Qwen, Mimo, MiniMax, Z.ai, Qwen AI, and Perplexity private streaming parsers still need provider-by-provider exact Java ports from the original TypeScript stream handlers.
-- Z.ai request signing and full browser fingerprint query construction are not yet fully ported.
+- Z.ai has a dedicated Java forwarder with create-chat, HMAC request signing, browser fingerprint query parameters, model casing, and basic thinking/answer SSE parsing. Exact incremental streaming behavior still needs a servlet streaming implementation instead of buffered RestTemplate response handling.
 - MiniMax signed device registration, credit query, chat list, polling stream, and delete-chat sequence are not yet fully ported.
 - Qwen AI still needs Java-side create-chat handshake parity before every completion for strict compatibility.
 - Perplexity still needs the original SSE response parser ported for exact OpenAI chunk mapping.
@@ -41,4 +41,5 @@ The current backend contains a provider adapter registry and built-in provider f
 ## Verification notes
 
 - Maven is not installed on the current Windows environment, so `mvn test` could not run here.
-- Node is available, but package installation/build has not been run to avoid unapproved network dependency installation.
+- Admin Web production build passed with `npm.cmd run build`.
+- Reporter Electron unpacked Windows build passed with `npm.cmd run build -- --dir`.
