@@ -1,0 +1,37 @@
+server:
+  port: ${CHAT2API_SERVER_PORT:8080}
+
+spring:
+  application:
+    name: chat2api-backend
+  datasource:
+    url: ${CHAT2API_DB_URL:jdbc:mysql://127.0.0.1:3306/chat2api?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${CHAT2API_DB_USERNAME:root}
+    password: ${CHAT2API_DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        jdbc:
+          time_zone: Asia/Shanghai
+  jackson:
+    default-property-inclusion: non_null
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+chat2api:
+  encryption-key: ${CHAT2API_ENCRYPTION_KEY:dev-only-change-this-secret-key}
+  admin:
+    username: ${CHAT2API_ADMIN_USERNAME:admin}
+    password: ${CHAT2API_ADMIN_PASSWORD:admin123456}
+  proxy:
+    request-timeout-ms: ${CHAT2API_REQUEST_TIMEOUT_MS:60000}
+    retry-count: ${CHAT2API_RETRY_COUNT:3}

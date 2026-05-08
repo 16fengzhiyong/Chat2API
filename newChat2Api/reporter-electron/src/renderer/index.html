@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chat2API Reporter</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <h1>Chat2API 账号上报端</h1>
+        <p>仅用于账号登录、token/cookie 提取和上传到 Java 后端。</p>
+      </section>
+      <section class="panel">
+        <h2>后端连接</h2>
+        <label>后端地址<input id="backendUrl" placeholder="http://localhost:8080" /></label>
+        <div class="row">
+          <button id="registerBtn">注册/更新上报端</button>
+          <button id="heartbeatBtn">心跳检测</button>
+        </div>
+        <p id="clientInfo"></p>
+      </section>
+      <section class="panel">
+        <h2>账号登录与上报</h2>
+        <label>Provider<select id="provider"></select></label>
+        <label>账号名称<input id="accountName" placeholder="例如 Qwen 主账号" /></label>
+        <label>Email/备注<input id="email" placeholder="可选" /></label>
+        <div class="row">
+          <button id="loginBtn">打开登录窗口并提取</button>
+          <button id="uploadBtn">上传当前凭据</button>
+        </div>
+        <textarea id="credentials" placeholder="自动提取结果会显示在这里，也可以手动输入 JSON"></textarea>
+      </section>
+      <section class="panel log-panel">
+        <h2>状态</h2>
+        <pre id="log"></pre>
+      </section>
+    </main>
+    <script src="./renderer.js"></script>
+  </body>
+</html>
