@@ -7,7 +7,6 @@ import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,7 +17,7 @@ import java.util.UUID;
 @Service
 @Order(0)
 public class BuiltinProviderForwarder extends BaseProviderForwarder {
-    private static final Set<String> SUPPORTED = Set.of("deepseek", "glm", "kimi", "qwen", "qwen-ai", "minimax", "mimo", "perplexity");
+    private static final Set<String> SUPPORTED = Set.of("deepseek", "glm", "kimi", "qwen", "minimax", "mimo", "perplexity");
 
     public BuiltinProviderForwarder(ObjectMapper objectMapper) {
         super(objectMapper);
@@ -33,7 +32,7 @@ public class BuiltinProviderForwarder extends BaseProviderForwarder {
     protected HttpHeaders buildHeaders(ProviderEntity provider, Map<String, String> credentials) {
         HttpHeaders headers = super.buildHeaders(provider, credentials);
         switch (provider.getVendor()) {
-            case "qwen-ai", "mimo", "perplexity" -> {
+            case "mimo", "perplexity" -> {
                 String cookie = first(credentials, "cookie", "cookies");
                 if (cookie != null) {
                     headers.set(HttpHeaders.COOKIE, cookie);
@@ -64,7 +63,6 @@ public class BuiltinProviderForwarder extends BaseProviderForwarder {
     @Override
     protected Map<String, Object> buildRequest(ProviderEntity provider, AccountEntity account, Map<String, String> credentials, Map<String, Object> request, String actualModel) {
         return switch (provider.getVendor()) {
-            case "qwen-ai" -> qwenAiRequest(request, actualModel);
             case "perplexity" -> perplexityRequest(request, actualModel);
             case "minimax" -> minimaxRequest(request, actualModel);
             default -> {
@@ -78,48 +76,10 @@ public class BuiltinProviderForwarder extends BaseProviderForwarder {
     @Override
     protected String endpoint(ProviderEntity provider) {
         return switch (provider.getVendor()) {
-            case "qwen-ai" -> "https://chat.qwen.ai/api/v2/chat/completions";
             case "perplexity" -> "https://www.perplexity.ai/rest/sse/perplexity_ask";
             case "minimax" -> "https://agent.minimaxi.com/matrix/api/v1/chat/chat_message";
             default -> super.endpoint(provider);
         };
-    }
-
-    private Map<String, Object> qwenAiRequest(Map<String, Object> request, String actualModel) {
-        long timestamp = Instant.now().toEpochMilli();
-        String chatId = String.valueOf(request.getOrDefault("chatId", UUID.randomUUID().toString()));
-        String fid = UUID.randomUUID().toString();
-        String childId = UUID.randomUUID().toString();
-        Map<String, Object> featureConfig = new LinkedHashMap<>();
-        featureConfig.put("thinking_enabled", modelLooksLikeThinking(String.valueOf(request.getOrDefault("model", actualModel))));
-        featureConfig.put("output_schema", "phase");
-        featureConfig.put("auto_search", true);
-        Map<String, Object> message = new LinkedHashMap<>();
-        message.put("fid", fid);
-        message.put("parentId", null);
-        message.put("childrenIds", List.of(childId));
-        message.put("role", "user");
-        message.put("content", lastUserContent(request));
-        message.put("user_action", "chat");
-        message.put("files", List.of());
-        message.put("timestamp", timestamp);
-        message.put("models", List.of(actualModel));
-        message.put("chat_type", "t2t");
-        message.put("feature_config", featureConfig);
-        message.put("extra", meta());
-        message.put("sub_chat_type", "t2t");
-        message.put("parent_id", null);
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("stream", true);
-        payload.put("version", "2.1");
-        payload.put("incremental_output", true);
-        payload.put("chat_id", chatId);
-        payload.put("chat_mode", "normal");
-        payload.put("model", actualModel);
-        payload.put("parent_id", null);
-        payload.put("messages", List.of(message));
-        payload.put("timestamp", timestamp);
-        return payload;
     }
 
     private Map<String, Object> perplexityRequest(Map<String, Object> request, String actualModel) {
@@ -140,14 +100,6 @@ public class BuiltinProviderForwarder extends BaseProviderForwarder {
         payload.put("bot_setting", List.of());
         payload.put("reply_constraints", Map.of("sender_type", "BOT", "sender_name", "Assistant"));
         return payload;
-    }
-
-    private Map<String, Object> meta() {
-        Map<String, Object> meta = new LinkedHashMap<>();
-        meta.put("subChatType", "t2t");
-        Map<String, Object> wrapper = new LinkedHashMap<>();
-        wrapper.put("meta", meta);
-        return wrapper;
     }
 
     @SuppressWarnings("unchecked")
@@ -176,11 +128,6 @@ public class BuiltinProviderForwarder extends BaseProviderForwarder {
             }
         }
         return "";
-    }
-
-    private boolean modelLooksLikeThinking(String model) {
-        String lower = model.toLowerCase();
-        return lower.contains("think") || lower.contains("r1") || lower.endsWith("-thinking");
     }
 
 }

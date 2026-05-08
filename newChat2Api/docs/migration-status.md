@@ -24,7 +24,8 @@ The current backend contains a provider adapter registry and built-in provider f
 - DeepSeek request format, token validation, stream parsing, clear chat.
 - GLM refresh token validation, signing/header details, stream parsing, clear chat.
 - Kimi gRPC-like request format, JWT validation, stream parsing.
-- Qwen and Qwen AI cookie/session behavior, record mode, dynamic chat endpoints, stream parsing, clear chat.
+- Qwen behavior, record mode, stream parsing, clear chat.
+- Qwen AI cookie authentication, create-chat handshake, dynamic chat_id endpoint, private request body, and basic SSE-to-OpenAI parsing.
 - MiniMax JWT + realUserID behavior, signing, credits API, clear chat.
 - Mimo multi-cookie validation, query format, stream parsing, clear chat.
 - Z.ai private API format, create-chat handshake, request signing, browser fingerprint query, clear chat, and basic SSE-to-OpenAI parsing.
@@ -34,8 +35,9 @@ The current backend contains a provider adapter registry and built-in provider f
 
 - DeepSeek, GLM, Kimi, Qwen, Mimo, MiniMax, Z.ai, Qwen AI, and Perplexity private streaming parsers still need provider-by-provider exact Java ports from the original TypeScript stream handlers.
 - Z.ai has a dedicated Java forwarder with create-chat, HMAC request signing, browser fingerprint query parameters, model casing, and basic thinking/answer SSE parsing. Exact incremental streaming behavior still needs a servlet streaming implementation instead of buffered RestTemplate response handling.
+- Qwen AI has a dedicated Java forwarder split by responsibility into protocol construction, forward orchestration, and stream parsing. Exact incremental streaming behavior still needs a servlet streaming implementation instead of buffered RestTemplate response handling.
 - MiniMax signed device registration, credit query, chat list, polling stream, and delete-chat sequence are not yet fully ported.
-- Qwen AI still needs Java-side create-chat handshake parity before every completion for strict compatibility.
+- Qwen AI still needs delete-after-chat integration with backend session policy for strict single-turn cleanup parity.
 - Perplexity still needs the original SSE response parser ported for exact OpenAI chunk mapping.
 
 ## Verification notes
