@@ -7,34 +7,110 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <div class="bokeh bokeh-one"></div>
+    <div class="bokeh bokeh-two"></div>
     <main class="shell">
       <section class="hero">
-        <h1>Chat2API 账号上报端</h1>
-        <p>仅用于账号登录、token/cookie 提取和上传到 Java 后端。</p>
-      </section>
-      <section class="panel">
-        <h2>后端连接</h2>
-        <label>后端地址<input id="backendUrl" placeholder="http://localhost:8080" /></label>
-        <div class="row">
-          <button id="registerBtn">注册/更新上报端</button>
-          <button id="heartbeatBtn">心跳检测</button>
+        <div>
+          <span class="eyebrow">Reporter Electron</span>
+          <h1>Chat2API 账号上报端</h1>
+          <p>专注完成账号登录、凭据提取和安全上报，管理与调用统一交给 Java 后端。</p>
         </div>
-        <p id="clientInfo"></p>
-      </section>
-      <section class="panel">
-        <h2>账号登录与上报</h2>
-        <label>Provider<select id="provider"></select></label>
-        <label>账号名称<input id="accountName" placeholder="例如 Qwen 主账号" /></label>
-        <label>Email/备注<input id="email" placeholder="可选" /></label>
-        <div class="row">
-          <button id="loginBtn">打开登录窗口并提取</button>
-          <button id="uploadBtn">上传当前凭据</button>
+        <div class="hero-card">
+          <span id="connectionBadge" class="badge badge-muted">未连接</span>
+          <strong id="clientTitle">尚未注册</strong>
+          <small id="clientInfo">等待连接后端</small>
         </div>
-        <textarea id="credentials" placeholder="自动提取结果会显示在这里，也可以手动输入 JSON"></textarea>
       </section>
-      <section class="panel log-panel">
-        <h2>状态</h2>
-        <pre id="log"></pre>
+
+      <section class="workflow">
+        <article class="panel step-panel">
+          <div class="step-head">
+            <span class="step-index">1</span>
+            <div>
+              <h2>连接后端</h2>
+              <p>配置 Java 后端地址并注册上报端身份。</p>
+            </div>
+          </div>
+          <label>
+            <span>后端地址</span>
+            <input id="backendUrl" placeholder="http://localhost:8080" />
+          </label>
+          <div class="row">
+            <button id="registerBtn" class="primary">注册 / 更新上报端</button>
+            <button id="heartbeatBtn" class="secondary">心跳检测</button>
+          </div>
+        </article>
+
+        <article class="panel step-panel">
+          <div class="step-head">
+            <span class="step-index">2</span>
+            <div>
+              <h2>登录并提取</h2>
+              <p>选择已迁移 Provider，打开官方页面完成登录。</p>
+            </div>
+          </div>
+          <label>
+            <span>Provider</span>
+            <select id="provider"></select>
+          </label>
+          <div class="provider-hint" id="providerHint">当前仅支持已迁移 Provider。</div>
+          <button id="loginBtn" class="primary full">打开登录窗口并提取凭据</button>
+        </article>
+
+        <article class="panel step-panel">
+          <div class="step-head">
+            <span class="step-index">3</span>
+            <div>
+              <h2>上传账号</h2>
+              <p>填写名称和备注，确认凭据后上传到后端。</p>
+            </div>
+          </div>
+          <label>
+            <span>账号名称</span>
+            <input id="accountName" placeholder="例如 Qwen 主账号" />
+          </label>
+          <label>
+            <span>Email / 备注</span>
+            <input id="email" placeholder="可选" />
+          </label>
+          <button id="uploadBtn" class="primary full">上传当前凭据</button>
+        </article>
+      </section>
+
+      <section class="content-grid">
+        <article class="panel credentials-panel">
+          <div class="panel-title">
+            <div>
+              <h2>凭据预览</h2>
+              <p>自动提取结果会显示在这里，也可以手动输入 JSON。</p>
+            </div>
+            <span id="credentialBadge" class="badge badge-muted">暂无凭据</span>
+          </div>
+          <textarea id="credentials" spellcheck="false" placeholder="{&#10;  &quot;cookie&quot;: &quot;...&quot;,&#10;  &quot;token&quot;: &quot;...&quot;&#10;}"></textarea>
+        </article>
+
+        <article class="panel log-panel">
+          <div class="panel-title">
+            <div>
+              <h2>运行状态</h2>
+              <p>展示注册、心跳、提取和上传过程。</p>
+            </div>
+            <button id="clearLogBtn" class="secondary small">清空</button>
+          </div>
+          <pre id="log"></pre>
+        </article>
+      </section>
+
+      <section class="tips">
+        <div>
+          <b>流程说明</b>
+          <span>先注册上报端，再登录 Provider，最后上传凭据。管理后台只负责管理，不创建账号。</span>
+        </div>
+        <div>
+          <b>安全说明</b>
+          <span>凭据通过 Reporter 专用鉴权上传，后端会加密保存账号凭据。</span>
+        </div>
       </section>
     </main>
     <script src="./renderer.js"></script>

@@ -2,6 +2,7 @@ package com.chat2api.backend.web;
 
 import com.chat2api.backend.domain.AccountEntity;
 import com.chat2api.backend.domain.ReporterClientEntity;
+import com.chat2api.backend.repository.ProviderRepository;
 import com.chat2api.backend.repository.ReporterClientRepository;
 import com.chat2api.backend.service.AccountService;
 import com.chat2api.backend.service.IdService;
@@ -18,11 +19,13 @@ import java.util.Map;
 @RequestMapping("/api/reporter")
 public class ReporterController {
     private final ReporterClientRepository reporterClientRepository;
+    private final ProviderRepository providerRepository;
     private final AccountService accountService;
     private final IdService idService;
 
-    public ReporterController(ReporterClientRepository reporterClientRepository, AccountService accountService, IdService idService) {
+    public ReporterController(ReporterClientRepository reporterClientRepository, ProviderRepository providerRepository, AccountService accountService, IdService idService) {
         this.reporterClientRepository = reporterClientRepository;
+        this.providerRepository = providerRepository;
         this.accountService = accountService;
         this.idService = idService;
     }
@@ -52,8 +55,12 @@ public class ReporterController {
     @PostMapping("/accounts")
     public ApiResponse<AccountEntity> uploadAccount(@RequestHeader("X-Reporter-Id") String clientId, @RequestHeader("X-Reporter-Secret") String secret, @RequestBody Map<String, Object> request) {
         requireClient(clientId, secret);
+        String providerId = String.valueOf(request.get("providerId"));
+        if (providerId.isBlank() || !providerRepository.existsById(providerId)) {
+            throw new IllegalArgumentException("Provider not found: " + providerId);
+        }
         AccountEntity account = accountService.create(
-                String.valueOf(request.get("providerId")),
+                providerId,
                 String.valueOf(request.getOrDefault("name", "Uploaded Account")),
                 request.get("email") == null ? null : String.valueOf(request.get("email")),
                 castStringMap(request.get("credentials")),
