@@ -1,8 +1,11 @@
 package com.chat2api.backend.service;
 
 import com.chat2api.backend.domain.AccountEntity;
+import com.chat2api.backend.domain.AccountStatus;
 import com.chat2api.backend.domain.ProviderEntity;
 import com.chat2api.backend.repository.ProviderRepository;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -22,18 +25,90 @@ import java.util.Map;
 public class ProviderMaintenanceService {
     private final ProviderRepository providerRepository;
     private final AccountService accountService;
+    private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate = new RestTemplate();
 
-    public ProviderMaintenanceService(ProviderRepository providerRepository, AccountService accountService) {
+    public ProviderMaintenanceService(ProviderRepository providerRepository, AccountService accountService, ObjectMapper objectMapper) {
         this.providerRepository = providerRepository;
         this.accountService = accountService;
+        this.objectMapper = objectMapper;
     }
 
     public ProviderEntity refreshModels(String providerId) {
         ProviderEntity provider = provider(providerId);
-        provider.setLastStatusCheck(Instant.now());
-        provider.setUpdatedAt(Instant.now());
-        return providerRepository.save(provider);
+        return switch (provider.getVendor()) {
+            case "qwen-ai" -> refreshQwenAiModels(provider);
+            default -> throw new IllegalArgumentException("Dynamic model refresh is not supported for provider: " + provider.getId());
+        };
+    }
+
+    private ProviderEntity refreshQwenAiModels(ProviderEntity provider) {
+        AccountEntity account = accountService.listByProvider(provider.getId()).stream()
+                .filter(item -> item.getStatus() == AccountStatus.ACTIVE)
+                .findFirst()
+                .orElse(null);
+        Map<String, String> credentials = account == null ? new LinkedHashMap<>() : accountService.credentials(account.getId());
+        HttpHeaders headers = qwenAiHeaders(credentials, null);
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(URI.create("https://chat.qwen.ai/api/models"), HttpMethod.GET, new HttpEntity<>(null, headers), String.class);
+            if (!response.getStatusCode().is2xxSuccessful()) {
+                throw new IllegalStateException("Failed to fetch models: HTTP " + response.getStatusCode().value());
+            }
+            Map<String, Object> parsed = objectMapper.readValue(response.getBody() == null ? "{}" : response.getBody(), new TypeReference<>() {});
+            Object data = parsed.get("data");
+            Object modelsValue = data == null ? parsed : data;
+            List<String> supportedModels = new ArrayList<>();
+            Map<String, Object> modelMappings = new LinkedHashMap<>();
+            if (modelsValue instanceof List<?> models) {
+                for (Object model : models) {
+                    appendModel(model, supportedModels, modelMappings);
+                }
+            }
+            if (supportedModels.isEmpty()) {
+                throw new IllegalStateException("No models found in the response");
+            }
+            provider.setSupportedModels(supportedModels);
+            provider.setModelMappings(modelMappings);
+            provider.setStatus("active");
+            provider.setLastStatusCheck(Instant.now());
+            provider.setUpdatedAt(Instant.now());
+            return providerRepository.save(provider);
+        } catch (Exception error) {
+            provider.setStatus("error");
+            provider.setLastStatusCheck(Instant.now());
+            provider.setUpdatedAt(Instant.now());
+            providerRepository.save(provider);
+            throw new IllegalStateException(error.getMessage() == null ? "Failed to refresh models" : error.getMessage(), error);
+        }
+    }
+
+    private void appendModel(Object model, List<String> supportedModels, Map<String, Object> modelMappings) {
+        if (model instanceof String modelName && !modelName.isBlank()) {
+            if (!supportedModels.contains(modelName)) {
+                supportedModels.add(modelName);
+                modelMappings.put(modelName, modelName);
+            }
+            return;
+        }
+        if (model instanceof Map<?, ?> map) {
+            Object idValue = firstValue(map, "id", "model_id", "modelId", "value");
+            Object nameValue = firstValue(map, "name", "display_name", "displayName", "label");
+            String modelId = idValue == null ? null : String.valueOf(idValue);
+            String modelName = nameValue == null ? modelId : String.valueOf(nameValue);
+            if (modelId != null && !modelId.isBlank() && modelName != null && !modelName.isBlank() && !supportedModels.contains(modelName)) {
+                supportedModels.add(modelName);
+                modelMappings.put(modelName, modelId);
+            }
+        }
+    }
+
+    private Object firstValue(Map<?, ?> map, String... keys) {
+        for (String key : keys) {
+            if (map.containsKey(key)) {
+                return map.get(key);
+            }
+        }
+        return null;
     }
 
     public Map<String, Object> clearChats(String providerId) {
