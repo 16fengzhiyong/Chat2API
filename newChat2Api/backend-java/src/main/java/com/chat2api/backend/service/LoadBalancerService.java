@@ -3,11 +3,13 @@ package com.chat2api.backend.service;
 import com.chat2api.backend.domain.AccountEntity;
 import com.chat2api.backend.domain.ProviderEntity;
 import com.chat2api.backend.repository.AccountRepository;
+import com.chat2api.backend.repository.AppConfigRepository;
 import com.chat2api.backend.repository.ModelMappingRepository;
 import com.chat2api.backend.repository.ProviderRepository;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -20,13 +22,17 @@ public class LoadBalancerService {
     private final AccountRepository accountRepository;
     private final ModelMappingRepository modelMappingRepository;
     private final AccountService accountService;
+    private final AppConfigRepository appConfigRepository;
+    private final ObjectMapper objectMapper;
     private final Map<String, Integer> roundRobinIndex = new HashMap<>();
 
-    public LoadBalancerService(ProviderRepository providerRepository, AccountRepository accountRepository, ModelMappingRepository modelMappingRepository, AccountService accountService) {
+    public LoadBalancerService(ProviderRepository providerRepository, AccountRepository accountRepository, ModelMappingRepository modelMappingRepository, AccountService accountService, AppConfigRepository appConfigRepository, ObjectMapper objectMapper) {
         this.providerRepository = providerRepository;
         this.accountRepository = accountRepository;
         this.modelMappingRepository = modelMappingRepository;
         this.accountService = accountService;
+        this.appConfigRepository = appConfigRepository;
+        this.objectMapper = objectMapper;
     }
 
     public Optional<Selection> select(String requestedModel) {
@@ -48,10 +54,41 @@ public class LoadBalancerService {
                 return preferred;
             }
         }
-        String key = candidates.stream().map(selection -> selection.provider().getId()).sorted().reduce("", (left, right) -> left + "," + right);
+        Map<String, Object> config = loadConfig();
+        String strategy = String.valueOf(config.getOrDefault("strategy", "round_robin"));
+        return switch (strategy) {
+            case "fill_first" -> selectFillFirst(candidates);
+            case "failover" -> selectFailover(candidates);
+            default -> selectRoundRobin(candidates);
+        };
+    }
+
+    private Optional<Selection> selectRoundRobin(List<Selection> candidates) {
+        String key = candidates.stream().map(s -> s.provider().getId()).sorted().reduce("", (a, b) -> a + "," + b);
         int index = roundRobinIndex.getOrDefault(key, 0);
         roundRobinIndex.put(key, (index + 1) % candidates.size());
-        return Optional.of(candidates.stream().sorted(Comparator.comparing(selection -> selection.account().getLastUsed(), Comparator.nullsFirst(Comparator.naturalOrder()))).toList().get(index % candidates.size()));
+        return Optional.of(candidates.get(index % candidates.size()));
+    }
+
+    private Optional<Selection> selectFillFirst(List<Selection> candidates) {
+        return candidates.stream()
+                .min(Comparator.comparing(s -> s.account().getLastUsed(), Comparator.nullsFirst(Comparator.naturalOrder())));
+    }
+
+    private Optional<Selection> selectFailover(List<Selection> candidates) {
+        return candidates.stream().findFirst();
+    }
+
+    private Map<String, Object> loadConfig() {
+        return appConfigRepository.findById("loadBalance")
+                .map(e -> {
+                    try {
+                        return objectMapper.readValue(e.getConfigValue(), new TypeReference<Map<String, Object>>() {});
+                    } catch (Exception ex) {
+                        return new HashMap<String, Object>();
+                    }
+                })
+                .orElseGet(HashMap::new);
     }
 
     private boolean supports(ProviderEntity provider, String model) {

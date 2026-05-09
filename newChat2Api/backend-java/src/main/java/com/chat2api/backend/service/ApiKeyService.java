@@ -47,6 +47,20 @@ public class ApiKeyService {
         return apiKey;
     }
 
+    public ApiKeyEntity update(String id, java.util.Map<String, Object> request) {
+        ApiKeyEntity entity = apiKeyRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("API key not found: " + id));
+        if (request.containsKey("enabled")) {
+            entity.setEnabled(Boolean.parseBoolean(String.valueOf(request.get("enabled"))));
+        }
+        if (request.containsKey("name") && request.get("name") != null) {
+            entity.setName(String.valueOf(request.get("name")));
+        }
+        if (request.containsKey("description")) {
+            entity.setDescription(request.get("description") == null ? null : String.valueOf(request.get("description")));
+        }
+        return apiKeyRepository.save(entity);
+    }
+
     public void delete(String id) {
         apiKeyRepository.deleteById(id);
     }

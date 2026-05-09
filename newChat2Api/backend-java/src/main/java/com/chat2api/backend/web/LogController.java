@@ -27,4 +27,9 @@ public class LogController {
     public ApiResponse<Map<String, Object>> statistics() {
         return ApiResponse.ok(requestLogService.statistics());
     }
+
+    @GetMapping("/statistics/daily")
+    public ApiResponse<List<Map<String, Object>>> dailyStatistics() {
+        return ApiResponse.ok(requestLogService.dailyStatistics());
+    }
 }

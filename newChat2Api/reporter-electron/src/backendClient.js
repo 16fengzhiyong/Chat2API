@@ -29,7 +29,7 @@ function createBackendClient(configStore) {
     configStore.save({ backendUrl: payload.backendUrl })
     return request('/api/reporter/register', {
       method: 'POST',
-      body: JSON.stringify({ name: payload.name || 'Desktop Reporter', version }),
+      body: JSON.stringify({ name: payload.name || 'Desktop Reporter', version, registrationCode: payload.registrationCode || '' }),
     }).then((data) => configStore.save({ clientId: data.clientId, secret: data.secret }))
   }
 

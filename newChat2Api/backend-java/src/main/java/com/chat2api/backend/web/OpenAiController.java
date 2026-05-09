@@ -2,6 +2,7 @@ package com.chat2api.backend.web;
 
 import com.chat2api.backend.proxy.ForwardResult;
 import com.chat2api.backend.proxy.ProxyService;
+import com.chat2api.backend.repository.AppConfigRepository;
 import com.chat2api.backend.repository.ModelMappingRepository;
 import com.chat2api.backend.repository.ProviderRepository;
 import com.chat2api.backend.service.ApiKeyService;
@@ -27,13 +28,15 @@ public class OpenAiController {
     private final ModelMappingRepository modelMappingRepository;
     private final ApiKeyService apiKeyService;
     private final OpenAiResponseService openAiResponseService;
+    private final AppConfigRepository appConfigRepository;
 
-    public OpenAiController(ProxyService proxyService, ProviderRepository providerRepository, ModelMappingRepository modelMappingRepository, ApiKeyService apiKeyService, OpenAiResponseService openAiResponseService) {
+    public OpenAiController(ProxyService proxyService, ProviderRepository providerRepository, ModelMappingRepository modelMappingRepository, ApiKeyService apiKeyService, OpenAiResponseService openAiResponseService, AppConfigRepository appConfigRepository) {
         this.proxyService = proxyService;
         this.providerRepository = providerRepository;
         this.modelMappingRepository = modelMappingRepository;
         this.apiKeyService = apiKeyService;
         this.openAiResponseService = openAiResponseService;
+        this.appConfigRepository = appConfigRepository;
     }
 
     @GetMapping("/")
@@ -95,7 +98,10 @@ public class OpenAiController {
     }
 
     private boolean authorized(HttpServletRequest request) {
-        if (!apiKeyService.hasKeys()) {
+        boolean apiKeyEnabled = appConfigRepository.findById("apiKeyEnabled")
+                .map(e -> "true".equalsIgnoreCase(e.getConfigValue()))
+                .orElse(false);
+        if (!apiKeyEnabled) {
             return true;
         }
         String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);

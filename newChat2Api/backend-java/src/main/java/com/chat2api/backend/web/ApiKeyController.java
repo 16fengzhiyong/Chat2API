@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -30,6 +31,11 @@ public class ApiKeyController {
     @PostMapping
     public ApiResponse<ApiKeyEntity> create(@RequestBody Map<String, Object> request) {
         return ApiResponse.ok(apiKeyService.create(String.valueOf(request.getOrDefault("name", "API Key")), request.get("description") == null ? null : String.valueOf(request.get("description"))));
+    }
+
+    @PutMapping("/{id}")
+    public ApiResponse<ApiKeyEntity> update(@PathVariable String id, @RequestBody Map<String, Object> request) {
+        return ApiResponse.ok(apiKeyService.update(id, request));
     }
 
     @DeleteMapping("/{id}")

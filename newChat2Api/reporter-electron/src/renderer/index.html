@@ -36,6 +36,10 @@
             <span>后端地址</span>
             <input id="backendUrl" placeholder="http://localhost:8080" />
           </label>
+          <label>
+            <span>注册口令</span>
+            <input id="registrationCode" type="password" placeholder="由后端环境变量配置" />
+          </label>
           <div class="row">
             <button id="registerBtn" class="primary">注册 / 更新上报端</button>
             <button id="heartbeatBtn" class="secondary">心跳检测</button>
@@ -109,7 +113,7 @@
         </div>
         <div>
           <b>安全说明</b>
-          <span>凭据通过 Reporter 专用鉴权上传，后端会加密保存账号凭据。</span>
+          <span>首次注册需要 Reporter 注册口令，凭据通过 Reporter 专用鉴权上传，后端会加密保存账号凭据。</span>
         </div>
       </section>
     </main>

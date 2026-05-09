@@ -5,6 +5,9 @@ import com.chat2api.backend.repository.RequestLogRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,6 +51,24 @@ public class RequestLogService {
         stats.put("failedRequests", failed);
         stats.put("averageLatency", avgLatency);
         return stats;
+    }
+
+    public List<Map<String, Object>> dailyStatistics() {
+        List<RequestLogEntity> logs = requestLogRepository.findAll();
+        List<Map<String, Object>> result = new ArrayList<>();
+        LocalDate today = LocalDate.now(ZoneId.systemDefault());
+        for (int i = 6; i >= 0; i--) {
+            LocalDate date = today.minusDays(i);
+            long total = logs.stream().filter(log -> log.getTimestamp() != null && log.getTimestamp().atZone(ZoneId.systemDefault()).toLocalDate().equals(date)).count();
+            long success = logs.stream().filter(log -> log.getTimestamp() != null && log.getTimestamp().atZone(ZoneId.systemDefault()).toLocalDate().equals(date) && "success".equalsIgnoreCase(log.getStatus())).count();
+            Map<String, Object> day = new LinkedHashMap<>();
+            day.put("date", date.toString());
+            day.put("total", total);
+            day.put("success", success);
+            day.put("failed", total - success);
+            result.add(day);
+        }
+        return result;
     }
 
     public String toJson(Object value) {

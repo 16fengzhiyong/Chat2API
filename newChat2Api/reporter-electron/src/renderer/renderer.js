@@ -1,4 +1,5 @@
 const backendUrlInput = document.getElementById('backendUrl')
+const registrationCodeInput = document.getElementById('registrationCode')
 const registerBtn = document.getElementById('registerBtn')
 const heartbeatBtn = document.getElementById('heartbeatBtn')
 const providerSelect = document.getElementById('provider')
@@ -37,15 +38,39 @@ async function init() {
   renderProviders()
   renderCredentials()
   setBusy(false)
+  if (state.config && state.config.clientId && state.config.secret) {
+    startHeartbeatTimer()
+  }
+}
+
+let heartbeatTimer = null
+
+function startHeartbeatTimer() {
+  if (heartbeatTimer) clearInterval(heartbeatTimer)
+  heartbeatTimer = setInterval(async () => {
+    const config = state.config || {}
+    if (!config.clientId || !config.secret) return
+    try {
+      await window.reporterApi.heartbeat()
+      state.config = await window.reporterApi.getConfig()
+      renderConfig('online')
+      log('自动心跳成功')
+    } catch (error) {
+      renderConfig('error')
+      log('自动心跳失败', getErrorMessage(error))
+    }
+  }, 5 * 60 * 1000)
 }
 
 async function handleRegister() {
   try {
     setBusy(true)
-    const config = await window.reporterApi.register({ backendUrl: backendUrlInput.value.trim(), name: 'Desktop Reporter' })
+    const config = await window.reporterApi.register({ backendUrl: backendUrlInput.value.trim(), name: 'Desktop Reporter', registrationCode: registrationCodeInput.value })
     state.config = config
+    registrationCodeInput.value = ''
     renderConfig()
     log('上报端注册成功')
+    startHeartbeatTimer()
   } catch (error) {
     log('注册失败', getErrorMessage(error))
   } finally {

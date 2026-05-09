@@ -4,13 +4,16 @@ import com.chat2api.backend.domain.AccountEntity;
 import com.chat2api.backend.domain.ReporterClientEntity;
 import com.chat2api.backend.repository.ProviderRepository;
 import com.chat2api.backend.repository.ReporterClientRepository;
+import com.chat2api.backend.security.SecurityProperties;
 import com.chat2api.backend.service.AccountService;
 import com.chat2api.backend.service.IdService;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.Map;
@@ -22,16 +25,22 @@ public class ReporterController {
     private final ProviderRepository providerRepository;
     private final AccountService accountService;
     private final IdService idService;
+    private final SecurityProperties securityProperties;
 
-    public ReporterController(ReporterClientRepository reporterClientRepository, ProviderRepository providerRepository, AccountService accountService, IdService idService) {
+    public ReporterController(ReporterClientRepository reporterClientRepository, ProviderRepository providerRepository, AccountService accountService, IdService idService, SecurityProperties securityProperties) {
         this.reporterClientRepository = reporterClientRepository;
         this.providerRepository = providerRepository;
         this.accountService = accountService;
         this.idService = idService;
+        this.securityProperties = securityProperties;
     }
 
     @PostMapping("/register")
     public ApiResponse<Map<String, Object>> register(@RequestBody Map<String, Object> request) {
+        String registrationCode = String.valueOf(request.getOrDefault("registrationCode", ""));
+        if (!securityProperties.reporterRegistrationCode().equals(registrationCode)) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid reporter registration code");
+        }
         ReporterClientEntity client = new ReporterClientEntity();
         client.setId(idService.id("reporter"));
         client.setName(String.valueOf(request.getOrDefault("name", "Reporter Client")));
@@ -44,7 +53,7 @@ public class ReporterController {
     }
 
     @PostMapping("/heartbeat")
-    public ApiResponse<Map<String, Object>> heartbeat(@RequestHeader("X-Reporter-Id") String clientId, @RequestHeader("X-Reporter-Secret") String secret) {
+    public ApiResponse<Map<String, Object>> heartbeat(@RequestHeader(value = "X-Reporter-Id", required = false) String clientId, @RequestHeader(value = "X-Reporter-Secret", required = false) String secret) {
         ReporterClientEntity client = requireClient(clientId, secret);
         client.setStatus("online");
         client.setLastHeartbeatAt(Instant.now());
@@ -53,7 +62,7 @@ public class ReporterController {
     }
 
     @PostMapping("/accounts")
-    public ApiResponse<AccountEntity> uploadAccount(@RequestHeader("X-Reporter-Id") String clientId, @RequestHeader("X-Reporter-Secret") String secret, @RequestBody Map<String, Object> request) {
+    public ApiResponse<AccountEntity> uploadAccount(@RequestHeader(value = "X-Reporter-Id", required = false) String clientId, @RequestHeader(value = "X-Reporter-Secret", required = false) String secret, @RequestBody Map<String, Object> request) {
         requireClient(clientId, secret);
         String providerId = String.valueOf(request.get("providerId"));
         if (providerId.isBlank() || !providerRepository.existsById(providerId)) {
@@ -70,7 +79,14 @@ public class ReporterController {
     }
 
     private ReporterClientEntity requireClient(String clientId, String secret) {
-        return reporterClientRepository.findByIdAndSecret(clientId, secret).orElseThrow(() -> new IllegalArgumentException("Invalid reporter credentials"));
+        if (clientId == null || clientId.isBlank() || secret == null || secret.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid reporter credentials");
+        }
+        ReporterClientEntity client = reporterClientRepository.findByIdAndSecret(clientId, secret).orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid reporter credentials"));
+        if (!"online".equalsIgnoreCase(client.getStatus()) && !"offline".equalsIgnoreCase(client.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Reporter client is disabled");
+        }
+        return client;
     }
 
     private Map<String, String> castStringMap(Object value) {
