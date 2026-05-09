@@ -111,6 +111,17 @@ public class ProviderMaintenanceService {
         return null;
     }
 
+    private Object nested(Map<String, Object> source, String... keys) {
+        Object current = source;
+        for (String key : keys) {
+            if (!(current instanceof Map<?, ?> map)) {
+                return null;
+            }
+            current = map.get(key);
+        }
+        return current;
+    }
+
     public Map<String, Object> clearChats(String providerId) {
         ProviderEntity provider = provider(providerId);
         List<Map<String, Object>> results = new ArrayList<>();
@@ -136,6 +147,7 @@ public class ProviderMaintenanceService {
         return switch (provider.getVendor()) {
             case "qwen-ai" -> hasAny(credentials, "cookies", "cookie", "token", "accessToken", "apiKey") ? delete(account, "https://chat.qwen.ai/api/v2/chats/", qwenAiHeaders(credentials, null)) : failed(account, "missing_credentials");
             case "zai" -> hasAny(credentials, "token", "accessToken", "access_token") ? delete(account, "https://chat.z.ai/api/v1/chats/", bearerHeaders(credentials, "token", "accessToken", "access_token")) : failed(account, "missing_credentials");
+            case "deepseek" -> hasAny(credentials, "token", "accessToken", "access_token", "apiKey", "refreshToken", "refresh_token") ? clearDeepSeekChats(account, credentials) : failed(account, "missing_credentials");
             default -> unsupported(account, "clear_chats_not_supported_for_" + provider.getVendor());
         };
     }
@@ -159,6 +171,54 @@ public class ProviderMaintenanceService {
         }
     }
 
+    private Map<String, Object> clearDeepSeekChats(AccountEntity account, Map<String, String> credentials) {
+        try {
+            String accessToken = deepSeekAccessToken(credentials);
+            Map<String, String> accessCredentials = new LinkedHashMap<>();
+            accessCredentials.put("token", accessToken);
+            String cookie = first(credentials, "cookie", "cookies");
+            if (cookie != null && !cookie.isBlank()) {
+                accessCredentials.put("cookie", cookie);
+            }
+            ResponseEntity<String> response = restTemplate.exchange(
+                    URI.create("https://chat.deepseek.com/api/v0/chat_session/delete_all"),
+                    HttpMethod.POST,
+                    new HttpEntity<>("{}", deepSeekHeaders(accessCredentials)),
+                    String.class
+            );
+            boolean success = response.getStatusCode().is2xxSuccessful();
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("accountId", account.getId());
+            result.put("success", success);
+            result.put("status", response.getStatusCode().value());
+            result.put("body", response.getBody() == null ? "" : response.getBody());
+            return result;
+        } catch (Exception error) {
+            return failed(account, error.getMessage());
+        }
+    }
+
+    private String deepSeekAccessToken(Map<String, String> credentials) throws Exception {
+        ResponseEntity<String> response = restTemplate.exchange(
+                URI.create("https://chat.deepseek.com/api/v0/users/current"),
+                HttpMethod.GET,
+                new HttpEntity<>(null, deepSeekHeaders(credentials)),
+                String.class
+        );
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            throw new IllegalStateException("Failed to acquire DeepSeek token: HTTP " + response.getStatusCode().value());
+        }
+        Map<String, Object> parsed = objectMapper.readValue(response.getBody() == null ? "{}" : response.getBody(), new TypeReference<>() {});
+        Object token = nested(parsed, "data", "biz_data", "token");
+        if (token == null) {
+            token = nested(parsed, "biz_data", "token");
+        }
+        if (token == null || String.valueOf(token).isBlank()) {
+            throw new IllegalStateException("Failed to acquire DeepSeek token");
+        }
+        return String.valueOf(token);
+    }
+
     private HttpHeaders qwenAiHeaders(Map<String, String> credentials, String chatId) {
         HttpHeaders headers = browserHeaders("https://chat.qwen.ai", chatId == null ? "https://chat.qwen.ai/" : "https://chat.qwen.ai/c/" + chatId);
         String cookie = first(credentials, "cookies", "cookie");
@@ -179,6 +239,23 @@ public class ProviderMaintenanceService {
         if (token != null && !token.isBlank()) {
             headers.setBearerAuth(token.replaceFirst("(?i)^Bearer\\s+", ""));
         }
+        return headers;
+    }
+
+    private HttpHeaders deepSeekHeaders(Map<String, String> credentials) {
+        HttpHeaders headers = browserHeaders("https://chat.deepseek.com", "https://chat.deepseek.com/");
+        String token = first(credentials, "token", "accessToken", "access_token", "apiKey", "refreshToken", "refresh_token");
+        String cookie = first(credentials, "cookie", "cookies");
+        if (token != null && !token.isBlank()) {
+            headers.setBearerAuth(token.replaceFirst("(?i)^Bearer\\s+", ""));
+        }
+        if (cookie != null && !cookie.isBlank()) {
+            headers.set(HttpHeaders.COOKIE, cookie);
+        }
+        headers.set("X-App-Version", "20241129.1");
+        headers.set("X-Client-Locale", "zh-CN");
+        headers.set("X-Client-Platform", "web");
+        headers.set("X-Client-Version", "1.8.0");
         return headers;
     }
 

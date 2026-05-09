@@ -86,6 +86,9 @@ async function extractFromWindow(loginWindow, provider) {
       credentials[key] = storage[key]
     }
   })
+  if (provider.id === 'deepseek' && !credentials.token && credentials.userToken) {
+    credentials.token = credentials.userToken
+  }
   if (cookieText) {
     credentials.cookie = cookieText
   }

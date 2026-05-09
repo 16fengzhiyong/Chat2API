@@ -26,6 +26,37 @@ public class BuiltinProviderSeeder {
     private List<ProviderEntity> builtinProviders() {
         return List.of(
                 provider("zai", "Z.ai", "zai", "jwt", "https://chat.z.ai/api", "/v2/chat/completions", List.of("GLM-5-Turbo", "glm-5", "glm-4.7"), Map.of("GLM-5-Turbo", "GLM-5-Turbo", "glm-5", "glm-5", "glm-4.7", "glm-4.7")),
+                provider("deepseek", "DeepSeek", "deepseek", "userToken", "https://chat.deepseek.com/api", "/v0/chat/completion", List.of(
+                        "deepseek-v4-pro",
+                        "deepseek-v4-pro-think",
+                        "deepseek-v4-pro-search",
+                        "deepseek-v4-pro-think-search",
+                        "deepseek-v4-flash",
+                        "deepseek-v4-flash-think",
+                        "deepseek-v4-flash-search",
+                        "deepseek-v4-flash-think-search",
+                        "deepseek-chat",
+                        "deepseek-reasoner",
+                        "DeepSeek-V3.2",
+                        "DeepSeek-Search",
+                        "DeepSeek-R1",
+                        "DeepSeek-R1-Search"
+                ), Map.ofEntries(
+                        Map.entry("deepseek-v4-pro", "deepseek-chat"),
+                        Map.entry("deepseek-v4-pro-think", "deepseek-chat"),
+                        Map.entry("deepseek-v4-pro-search", "deepseek-chat"),
+                        Map.entry("deepseek-v4-pro-think-search", "deepseek-chat"),
+                        Map.entry("deepseek-v4-flash", "deepseek-chat"),
+                        Map.entry("deepseek-v4-flash-think", "deepseek-chat"),
+                        Map.entry("deepseek-v4-flash-search", "deepseek-chat"),
+                        Map.entry("deepseek-v4-flash-think-search", "deepseek-chat"),
+                        Map.entry("deepseek-chat", "deepseek-chat"),
+                        Map.entry("deepseek-reasoner", "deepseek-chat"),
+                        Map.entry("DeepSeek-V3.2", "deepseek-chat"),
+                        Map.entry("DeepSeek-Search", "deepseek-chat"),
+                        Map.entry("DeepSeek-R1", "deepseek-chat"),
+                        Map.entry("DeepSeek-R1-Search", "deepseek-chat")
+                )),
                 provider("qwen-ai", "Qwen AI", "qwen-ai", "cookie", "https://chat.qwen.ai", "/api/v2/chat/completions", List.of("Qwen3.6-Plus", "Qwen3.5-Plus", "Qwen2.5-Max"), Map.of("Qwen3.6-Plus", "qwen3.6-plus", "Qwen3.5-Plus", "qwen3.5-plus", "Qwen2.5-Max", "qwen-max-latest"))
         );
     }

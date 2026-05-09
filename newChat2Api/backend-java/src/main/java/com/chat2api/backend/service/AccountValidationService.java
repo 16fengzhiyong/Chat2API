@@ -85,6 +85,9 @@ public class AccountValidationService {
         if ("zai".equals(provider.getVendor()) && !hasToken) {
             errors.add("zai_token_missing");
         }
+        if ("deepseek".equals(provider.getVendor()) && !hasToken) {
+            errors.add("deepseek_token_missing");
+        }
         if (!hasToken && !hasCookie) {
             warnings.add("no_common_auth_fields_detected");
         }
