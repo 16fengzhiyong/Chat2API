@@ -4,6 +4,7 @@ import com.chat2api.backend.domain.AccountEntity;
 import com.chat2api.backend.service.AccountService;
 import com.chat2api.backend.service.AccountValidationService;
 import com.chat2api.backend.service.RedactionService;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
@@ -41,14 +43,7 @@ public class AccountController {
 
     @PostMapping
     public ApiResponse<AccountEntity> create(@RequestBody Map<String, Object> request) {
-        AccountEntity account = accountService.create(
-                String.valueOf(request.get("providerId")),
-                String.valueOf(request.getOrDefault("name", "Account")),
-                request.get("email") == null ? null : String.valueOf(request.get("email")),
-                castStringMap(request.get("credentials")),
-                request.get("dailyLimit") == null ? null : Long.valueOf(String.valueOf(request.get("dailyLimit")))
-        );
-        return ApiResponse.ok(account);
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account creation is disabled in admin console; use reporter client upload instead");
     }
 
     @PutMapping("/{id}")

@@ -1,10 +1,9 @@
 package com.chat2api.backend.web;
 
 import com.chat2api.backend.domain.ProviderEntity;
-import com.chat2api.backend.domain.ProviderType;
 import com.chat2api.backend.repository.ProviderRepository;
-import com.chat2api.backend.service.IdService;
 import com.chat2api.backend.service.ProviderMaintenanceService;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -13,6 +12,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -23,12 +23,10 @@ import java.util.Map;
 @RequestMapping("/api/providers")
 public class ProviderController {
     private final ProviderRepository providerRepository;
-    private final IdService idService;
     private final ProviderMaintenanceService providerMaintenanceService;
 
-    public ProviderController(ProviderRepository providerRepository, IdService idService, ProviderMaintenanceService providerMaintenanceService) {
+    public ProviderController(ProviderRepository providerRepository, ProviderMaintenanceService providerMaintenanceService) {
         this.providerRepository = providerRepository;
-        this.idService = idService;
         this.providerMaintenanceService = providerMaintenanceService;
     }
 
@@ -39,14 +37,7 @@ public class ProviderController {
 
     @PostMapping
     public ApiResponse<ProviderEntity> create(@RequestBody ProviderEntity provider) {
-        if (provider.getId() == null || provider.getId().isBlank()) {
-            provider.setId(idService.id("provider"));
-        }
-        if (provider.getType() == null) {
-            provider.setType(ProviderType.CUSTOM);
-        }
-        provider.setUpdatedAt(Instant.now());
-        return ApiResponse.ok(providerRepository.save(provider));
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Provider creation is disabled in admin console");
     }
 
     @PutMapping("/{id}")

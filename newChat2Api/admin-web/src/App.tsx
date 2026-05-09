@@ -90,11 +90,10 @@ function App() {
     await refresh()
   }
 
-  async function saveProviderJson(provider?: Provider) {
-    const payload = jsonPrompt(provider ? '编辑 Provider JSON' : '创建 Provider JSON', provider ? { ...provider } : { name: 'Custom Provider', vendor: 'custom', authType: 'apiKey', apiEndpoint: 'https://api.example.com', chatPath: '/v1/chat/completions', enabled: true, supportedModels: [], modelMappings: {}, headers: {} })
+  async function saveProviderJson(provider: Provider) {
+    const payload = jsonPrompt('编辑 Provider JSON', { ...provider })
     if (!payload) return
-    if (provider) await api.updateProvider(provider.id, payload)
-    else await api.saveProvider(payload)
+    await api.updateProvider(provider.id, payload)
     showMessage('Provider 已保存')
     await refresh()
   }
@@ -106,11 +105,10 @@ function App() {
     await refresh()
   }
 
-  async function saveAccountJson(account?: Account) {
-    const payload = jsonPrompt(account ? '编辑账号 JSON' : '创建账号 JSON', account ? { name: account.name, email: account.email, status: account.status, dailyLimit: account.dailyLimit } : { providerId: visibleProviders[0]?.id || 'zai', name: 'Account', email: '', credentials: {}, dailyLimit: null })
+  async function saveAccountJson(account: Account) {
+    const payload = jsonPrompt('编辑账号 JSON', { name: account.name, email: account.email, status: account.status, dailyLimit: account.dailyLimit })
     if (!payload) return
-    if (account) await api.updateAccount(account.id, payload)
-    else await api.saveAccount(payload)
+    await api.updateAccount(account.id, payload)
     showMessage('账号已保存')
     await refresh()
   }
@@ -186,33 +184,34 @@ function App() {
   }
 
   return (
-    <div className="flex min-h-screen bg-[radial-gradient(circle_at_top_left,#eef2ff_0,#f8fafc_38%,#f8fafc_100%)]">
-      <aside className="fixed inset-y-0 left-0 z-20 flex w-72 flex-col bg-slate-950 text-white shadow-2xl shadow-slate-900/20">
-        <div className="p-6">
+    <div className="app-shell flex min-h-screen">
+      <div className="bokeh-bg"><div className="bokeh-blob-1" /><div className="bokeh-blob-2" /></div>
+      <aside className="glass-sidebar fixed inset-y-3 left-3 z-20 flex w-72 flex-col">
+        <div className="p-5">
           <div className="mb-8 flex items-center gap-3">
-            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-lg font-black shadow-lg shadow-indigo-500/30">C2A</div>
-            <div><h1 className="text-lg font-bold">Chat2API</h1><p className="text-xs text-slate-400">三端分离管理后台</p></div>
+            <div className="brand-mark">C2A</div>
+            <div><h1 className="text-lg font-bold">Chat2API</h1><p className="text-xs text-muted">三端分离管理后台</p></div>
           </div>
           <nav className="space-y-1">
             {tabs.map((item) => {
               const Icon = item.icon
               const active = tab === item.id
-              return <button key={item.id} onClick={() => setTab(item.id)} className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-medium transition ${active ? 'bg-white/15 text-white shadow-lg' : 'text-slate-400 hover:bg-white/10 hover:text-white'}`}><Icon size={18} />{item.label}</button>
+              return <button key={item.id} onClick={() => setTab(item.id)} className={`nav-item flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-medium ${active ? 'nav-item-active' : 'nav-item-inactive'}`}><Icon size={18} />{item.label}</button>
             })}
           </nav>
         </div>
-        <div className="mt-auto border-t border-white/10 p-6 text-xs text-slate-400"><div className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${health ? 'bg-emerald-400' : 'bg-slate-600'}`} />{config.baseUrl}</div></div>
+        <div className="mt-auto border-t border-subtle p-5 text-xs text-muted"><div className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${health ? 'bg-emerald-500' : 'bg-slate-400'}`} />{config.baseUrl}</div></div>
       </aside>
 
-      <main className="ml-72 min-h-screen flex-1">
-        <header className="sticky top-0 z-10 border-b border-slate-200/70 bg-white/70 px-8 py-5 backdrop-blur-xl">
+      <main className="ml-[304px] min-h-screen flex-1">
+        <header className="glass-topbar sticky top-0 z-10 px-8 py-5">
           <div className="flex items-center justify-between">
-            <div><h2 className="text-2xl font-bold text-slate-900">{currentTab.label}</h2><p className="mt-1 text-sm text-slate-500">{currentTab.desc}</p></div>
+            <div><h2 className="text-2xl font-bold tracking-tight">{currentTab.label}</h2><p className="mt-1 text-sm text-muted">{currentTab.desc}</p></div>
             <button className="btn-primary" onClick={refresh} disabled={loading}><RefreshCw size={16} className={loading ? 'animate-spin' : ''} />{loading ? '刷新中' : '刷新'}</button>
           </div>
         </header>
 
-        <section className="p-8">
+        <section className="mx-auto max-w-7xl p-8">
           {message && <div className={messageType === 'error' ? 'toast-error' : 'toast-info'}>{message}</div>}
 
           {tab === 'dashboard' && <div className="animate-fade-in space-y-6">
@@ -229,11 +228,11 @@ function App() {
           </div>}
 
           {tab === 'providers' && <div className="animate-fade-in space-y-5">
-            <div className="flex justify-between"><div><h3 className="text-lg font-bold">已迁移 Provider</h3><p className="text-sm text-slate-500">未迁移或跳过的 Provider 不展示。</p></div><button className="btn-primary" onClick={() => saveProviderJson()}>创建 Provider</button></div>
-            <div className="grid gap-5 xl:grid-cols-2">{visibleProviders.map((provider) => <article className="card" key={provider.id}><ProviderHero provider={provider} /><div className="mt-5 flex flex-wrap gap-2"><button className="btn-ghost" onClick={() => saveProviderJson(provider)}><Edit3 size={15} />编辑</button><button className="btn-ghost" onClick={() => runAction(() => api.checkProvider(provider.id), '检查完成')}>检查状态</button><button className="btn-ghost" onClick={() => runAction(() => api.refreshProviderModels(provider.id), '模型刷新已触发')}>刷新模型</button><button className="btn-ghost" onClick={() => runAction(() => api.providerCredits(provider.id), '额度查询完成')}>额度</button><button className="btn-ghost" onClick={() => runAction(() => api.clearProviderChats(provider.id), '清空聊天完成')}>清空聊天</button><button className="btn-danger" onClick={() => deleteProvider(provider.id)}><Trash2 size={15} />删除</button></div></article>)}</div>
+            <div className="section-heading"><div><h3 className="text-lg font-bold">已迁移 Provider</h3><p className="text-sm text-muted">后台只管理已迁移服务商，不提供创建 Provider 能力。</p></div><span className="badge-neutral">Managed only</span></div>
+            <div className="grid gap-5 xl:grid-cols-2">{visibleProviders.map((provider) => <article className="card card-hover" key={provider.id}><ProviderHero provider={provider} accounts={visibleAccounts.filter((account) => account.providerId === provider.id)} /><div className="mt-5 flex flex-wrap gap-2"><button className="btn-ghost" onClick={() => saveProviderJson(provider)}><Edit3 size={15} />编辑</button><button className="btn-ghost" onClick={() => runAction(() => api.checkProvider(provider.id), '检查完成')}>检查状态</button><button className="btn-ghost" onClick={() => runAction(() => api.refreshProviderModels(provider.id), '模型刷新已触发')}>刷新模型</button><button className="btn-ghost" onClick={() => runAction(() => api.providerCredits(provider.id), '额度查询完成')}>额度</button><button className="btn-ghost" onClick={() => runAction(() => api.clearProviderChats(provider.id), '清空聊天完成')}>清空聊天</button><button className="btn-danger" onClick={() => deleteProvider(provider.id)}><Trash2 size={15} />删除</button></div></article>)}</div>
           </div>}
 
-          {tab === 'accounts' && <TablePanel action={<button className="btn-primary" onClick={() => saveAccountJson()}>创建账号</button>}><table><thead><tr><th>名称</th><th>Provider</th><th>状态</th><th>今日使用</th><th>请求数</th><th>操作</th></tr></thead><tbody>{visibleAccounts.map((account) => <tr key={account.id}><td><b>{account.name}</b><br /><span className="text-xs text-slate-400">{account.email || account.id}</span></td><td>{providerMap.get(account.providerId)?.name || account.providerId}</td><td>{accountBadge(account.status)}</td><td>{account.todayUsed}/{account.dailyLimit || '∞'}</td><td>{account.requestCount}</td><td><div className="flex flex-wrap gap-2"><button className="btn-ghost" onClick={() => saveAccountJson(account)}>编辑</button><button className="btn-ghost" onClick={() => runAction(() => api.validateAccount(account.id), '校验完成')}>校验</button><button className="btn-danger" onClick={() => runAction(() => api.deleteAccount(account.id), '账号已删除')}>删除</button></div></td></tr>)}</tbody></table></TablePanel>}
+          {tab === 'accounts' && <TablePanel action={<div className="managed-note">账号由 Reporter Electron 登录并上报，管理后台不提供创建入口。</div>}><table><thead><tr><th>名称</th><th>Provider</th><th>状态</th><th>今日使用</th><th>请求数</th><th>操作</th></tr></thead><tbody>{visibleAccounts.map((account) => <tr key={account.id}><td><b>{account.name}</b><br /><span className="text-xs text-muted">{account.email || account.id}</span></td><td>{providerMap.get(account.providerId)?.name || account.providerId}</td><td>{accountBadge(account.status)}</td><td>{account.todayUsed}/{account.dailyLimit || '∞'}</td><td>{account.requestCount}</td><td><div className="flex flex-wrap gap-2"><button className="btn-ghost" onClick={() => saveAccountJson(account)}>编辑</button><button className="btn-ghost" onClick={() => runAction(() => api.validateAccount(account.id), '校验完成')}>校验</button><button className="btn-danger" onClick={() => runAction(() => api.deleteAccount(account.id), '账号已删除')}>删除</button></div></td></tr>)}</tbody></table></TablePanel>}
 
           {tab === 'keys' && <TablePanel action={<button className="btn-primary" onClick={createKey}>创建 API Key</button>}><table><thead><tr><th>名称</th><th>Key</th><th>状态</th><th>使用次数</th><th>操作</th></tr></thead><tbody>{apiKeys.map((key) => <tr key={key.id}><td>{key.name}</td><td><code className="rounded-lg bg-slate-100 px-2 py-1 text-xs">{key.keyValue}</code></td><td>{key.enabled ? <span className="badge-success">enabled</span> : <span className="badge-neutral">disabled</span>}</td><td>{key.usageCount}</td><td><button className="btn-danger" onClick={() => runAction(() => api.deleteApiKey(key.id), 'API Key 已删除')}>删除</button></td></tr>)}</tbody></table></TablePanel>}
 
@@ -264,17 +263,18 @@ function Stat({ title, value }: { title: string; value: string | number }) {
 }
 
 function ProviderMini({ provider }: { provider: Provider }) {
-  return <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4"><div><b>{provider.name}</b><p className="text-xs text-slate-500">{provider.supportedModels?.join(' / ') || provider.id}</p></div>{provider.enabled ? <span className="badge-success">enabled</span> : <span className="badge-neutral">disabled</span>}</div>
+  return <div className="soft-row flex items-center justify-between"><div><b>{provider.name}</b><p className="text-xs text-muted">{provider.supportedModels?.join(' / ') || provider.id}</p></div>{provider.enabled ? <span className="badge-success">enabled</span> : <span className="badge-neutral">disabled</span>}</div>
 }
 
-function ProviderHero({ provider }: { provider: Provider }) {
+function ProviderHero({ provider, accounts }: { provider: Provider; accounts: Account[] }) {
   const gradient = provider.id === 'zai' ? 'from-emerald-500 to-teal-500' : 'from-violet-500 to-fuchsia-500'
-  return <div><div className="flex items-start justify-between gap-4"><div className="flex items-center gap-4"><div className={`grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br ${gradient} text-xl font-black text-white shadow-lg`}>{provider.name.slice(0, 1)}</div><div><h3 className="text-xl font-bold text-slate-900">{provider.name}</h3><p className="text-sm text-slate-500">{provider.id} / {provider.vendor}</p></div></div>{provider.enabled ? <span className="badge-success">enabled</span> : <span className="badge-neutral">disabled</span>}</div><p className="mt-4 break-all rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">{provider.apiEndpoint}{provider.chatPath}</p><div className="mt-3 flex flex-wrap gap-2">{provider.supportedModels?.map((model) => <span key={model} className="badge-neutral">{model}</span>)}</div></div>
+  const activeAccounts = accounts.filter((account) => account.status === 'active').length
+  return <div><div className="flex items-start justify-between gap-4"><div className="flex items-center gap-4"><div className={`grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br ${gradient} text-xl font-black text-white shadow-lg`}>{provider.name.slice(0, 1)}</div><div><h3 className="text-xl font-bold">{provider.name}</h3><p className="text-sm text-muted">{provider.id} / {provider.vendor}</p></div></div>{provider.enabled ? <span className="badge-success">enabled</span> : <span className="badge-neutral">disabled</span>}</div><div className="mt-4 grid grid-cols-3 gap-3 text-sm"><div className="metric-box"><span>账号</span><b>{activeAccounts}/{accounts.length}</b></div><div className="metric-box"><span>模型</span><b>{provider.supportedModels?.length || 0}</b></div><div className="metric-box"><span>认证</span><b>{provider.authType}</b></div></div><p className="mt-4 break-all rounded-2xl bg-soft p-3 text-sm text-muted">{provider.apiEndpoint}{provider.chatPath}</p><div className="mt-3 flex flex-wrap gap-2">{provider.supportedModels?.map((model) => <span key={model} className="badge-neutral">{model}</span>)}</div></div>
 }
 
 function LogMini({ log }: { log: RequestLog }) {
   const ok = log.status === 'success' || log.statusCode < 400
-  return <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4"><div><b className="text-sm">{log.model || '-'}</b><p className="text-xs text-slate-500">{log.providerId || '-'} · {log.latency}ms</p></div><span className={ok ? 'badge-success' : 'badge-danger'}>{log.statusCode}</span></div>
+  return <div className="soft-row flex items-center justify-between"><div><b className="text-sm">{log.model || '-'}</b><p className="text-xs text-muted">{log.providerId || '-'} · {log.latency}ms</p></div><span className={ok ? 'badge-success' : 'badge-danger'}>{log.statusCode}</span></div>
 }
 
 function TablePanel({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {

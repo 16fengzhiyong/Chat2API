@@ -52,7 +52,6 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const api = {
   health: () => fetch(`${defaultConfig.baseUrl}/health`).then((res) => res.json()),
   providers: () => request<Provider[]>('/api/providers'),
-  saveProvider: (provider: Record<string, unknown>) => request<Provider>('/api/providers', { method: 'POST', body: JSON.stringify(provider) }),
   updateProvider: (id: string, provider: Record<string, unknown>) => request<Provider>(`/api/providers/${id}`, { method: 'PUT', body: JSON.stringify(provider) }),
   deleteProvider: (id: string) => request<Record<string, unknown>>(`/api/providers/${id}`, { method: 'DELETE' }),
   checkProvider: (id: string) => request(`/api/providers/${id}/status`, { method: 'POST' }),
@@ -60,7 +59,6 @@ export const api = {
   clearProviderChats: (id: string) => request<Record<string, unknown>>(`/api/providers/${id}/clear-chats`, { method: 'POST' }),
   providerCredits: (id: string) => request<Record<string, unknown>>(`/api/providers/${id}/credits`),
   accounts: () => request<Account[]>('/api/accounts'),
-  saveAccount: (account: Record<string, unknown>) => request<Account>('/api/accounts', { method: 'POST', body: JSON.stringify(account) }),
   updateAccount: (id: string, account: Record<string, unknown>) => request<Account>(`/api/accounts/${id}`, { method: 'PUT', body: JSON.stringify(account) }),
   deleteAccount: (id: string) => request<Record<string, unknown>>(`/api/accounts/${id}`, { method: 'DELETE' }),
   validateAccount: (id: string) => request<Record<string, unknown>>(`/api/accounts/${id}/validate`, { method: 'POST' }),
