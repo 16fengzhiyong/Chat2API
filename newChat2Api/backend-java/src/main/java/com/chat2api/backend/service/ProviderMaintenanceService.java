@@ -61,16 +61,12 @@ public class ProviderMaintenanceService {
         return switch (provider.getVendor()) {
             case "qwen-ai" -> hasAny(credentials, "cookies", "cookie", "token", "accessToken", "apiKey") ? delete(account, "https://chat.qwen.ai/api/v2/chats/", qwenAiHeaders(credentials, null)) : failed(account, "missing_credentials");
             case "zai" -> hasAny(credentials, "token", "accessToken", "access_token") ? delete(account, "https://chat.z.ai/api/v1/chats/", bearerHeaders(credentials, "token", "accessToken", "access_token")) : failed(account, "missing_credentials");
-            case "perplexity" -> hasAny(credentials, "cookie", "cookies") ? delete(account, "https://www.perplexity.ai/rest/thread/delete_all_threads?version=2.18&source=default", perplexityHeaders(credentials)) : failed(account, "missing_credentials");
             default -> unsupported(account, "clear_chats_not_supported_for_" + provider.getVendor());
         };
     }
 
     private Map<String, Object> credits(ProviderEntity provider, AccountEntity account, Map<String, String> credentials) {
-        if (!"minimax".equals(provider.getVendor())) {
-            return unsupported(account, "credits_not_supported_for_" + provider.getVendor());
-        }
-        return unsupported(account, "minimax_credits_requires_signed_device_request_not_configured");
+        return unsupported(account, "credits_not_supported_for_" + provider.getVendor());
     }
 
     private Map<String, Object> delete(AccountEntity account, String url, HttpHeaders headers) {
@@ -99,19 +95,6 @@ public class ProviderMaintenanceService {
         }
         headers.set("source", "web");
         headers.set("Version", "0.2.45");
-        return headers;
-    }
-
-    private HttpHeaders perplexityHeaders(Map<String, String> credentials) {
-        HttpHeaders headers = browserHeaders("https://www.perplexity.ai", "https://www.perplexity.ai/library");
-        String cookie = first(credentials, "cookie", "cookies");
-        if (cookie != null && !cookie.isBlank()) {
-            headers.set(HttpHeaders.COOKIE, cookie);
-        }
-        headers.set("x-app-apiclient", "default");
-        headers.set("x-app-apiversion", "2.18");
-        headers.set("x-perplexity-request-reason", "threads-list");
-        headers.set("x-perplexity-request-try-number", "1");
         return headers;
     }
 

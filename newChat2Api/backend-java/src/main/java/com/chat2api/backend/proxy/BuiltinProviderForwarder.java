@@ -17,7 +17,7 @@ import java.util.UUID;
 @Service
 @Order(0)
 public class BuiltinProviderForwarder extends BaseProviderForwarder {
-    private static final Set<String> SUPPORTED = Set.of("deepseek", "glm", "kimi", "qwen", "minimax", "mimo", "perplexity");
+    private static final Set<String> SUPPORTED = Set.of();
 
     public BuiltinProviderForwarder(ObjectMapper objectMapper) {
         super(objectMapper);
