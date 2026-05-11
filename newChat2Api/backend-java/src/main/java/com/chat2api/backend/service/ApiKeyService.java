@@ -2,6 +2,7 @@ package com.chat2api.backend.service;
 
 import com.chat2api.backend.domain.ApiKeyEntity;
 import com.chat2api.backend.repository.ApiKeyRepository;
+import com.chat2api.backend.repository.ProviderRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,11 +17,14 @@ import java.util.Set;
 
 @Service
 public class ApiKeyService {
+    private static final String PROVIDER_PERMISSION_PREFIX = "provider:";
     private final ApiKeyRepository apiKeyRepository;
+    private final ProviderRepository providerRepository;
     private final IdService idService;
 
-    public ApiKeyService(ApiKeyRepository apiKeyRepository, IdService idService) {
+    public ApiKeyService(ApiKeyRepository apiKeyRepository, ProviderRepository providerRepository, IdService idService) {
         this.apiKeyRepository = apiKeyRepository;
+        this.providerRepository = providerRepository;
         this.idService = idService;
     }
 
@@ -82,6 +86,12 @@ public class ApiKeyService {
             String normalizedAllowed = allowed == null ? "" : allowed.trim().toLowerCase(Locale.ROOT);
             if (normalizedAllowed.isEmpty() || "all".equals(normalizedAllowed)) {
                 return true;
+            }
+            if (normalizedAllowed.startsWith(PROVIDER_PERMISSION_PREFIX)) {
+                String providerId = allowed.trim().substring(PROVIDER_PERMISSION_PREFIX.length());
+                return providerRepository.findById(providerId)
+                        .map(provider -> provider.getSupportedModels().stream().anyMatch(providerModel -> providerModel.equalsIgnoreCase(model.trim())))
+                        .orElse(false);
             }
             if (normalizedAllowed.endsWith("*")) {
                 return normalizedModel.startsWith(normalizedAllowed.substring(0, normalizedAllowed.length() - 1));

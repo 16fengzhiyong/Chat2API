@@ -58,6 +58,7 @@ export interface ReporterRegistrationCode {
   enabled: boolean
   createdAt: string
   updatedAt: string
+  code?: string
 }
 
 export interface CreatedReporterRegistrationCode extends ReporterRegistrationCode {

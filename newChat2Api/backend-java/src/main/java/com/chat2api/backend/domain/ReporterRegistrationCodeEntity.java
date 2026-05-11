@@ -16,6 +16,8 @@ public class ReporterRegistrationCodeEntity {
     private String name;
     @Column(nullable = false, length = 120)
     private String codeHash;
+    @Column(length = 1024)
+    private String encryptedCode;
     private String description;
     private boolean enabled = true;
     private Instant createdAt = Instant.now();
@@ -27,6 +29,8 @@ public class ReporterRegistrationCodeEntity {
     public void setName(String name) { this.name = name; }
     public String getCodeHash() { return codeHash; }
     public void setCodeHash(String codeHash) { this.codeHash = codeHash; }
+    public String getEncryptedCode() { return encryptedCode; }
+    public void setEncryptedCode(String encryptedCode) { this.encryptedCode = encryptedCode; }
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
     public boolean isEnabled() { return enabled; }

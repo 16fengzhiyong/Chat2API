@@ -26,7 +26,7 @@ public class ReporterRegistrationCodeController {
 
     @GetMapping
     public ApiResponse<List<RegistrationCodeResponse>> list() {
-        return ApiResponse.ok(service.list().stream().map(RegistrationCodeResponse::from).toList());
+        return ApiResponse.ok(service.list().stream().map(entity -> RegistrationCodeResponse.from(entity, service.decryptCode(entity))).toList());
     }
 
     @PostMapping
@@ -41,7 +41,8 @@ public class ReporterRegistrationCodeController {
 
     @PutMapping("/{id}")
     public ApiResponse<RegistrationCodeResponse> update(@PathVariable String id, @RequestBody Map<String, Object> request) {
-        return ApiResponse.ok(RegistrationCodeResponse.from(service.update(id, request)));
+        ReporterRegistrationCodeEntity entity = service.update(id, request);
+        return ApiResponse.ok(RegistrationCodeResponse.from(entity, service.decryptCode(entity)));
     }
 
     @DeleteMapping("/{id}")
@@ -50,9 +51,9 @@ public class ReporterRegistrationCodeController {
         return ApiResponse.ok(Map.of("deleted", true));
     }
 
-    public record RegistrationCodeResponse(String id, String name, String description, boolean enabled, Instant createdAt, Instant updatedAt) {
-        static RegistrationCodeResponse from(ReporterRegistrationCodeEntity entity) {
-            return new RegistrationCodeResponse(entity.getId(), entity.getName(), entity.getDescription(), entity.isEnabled(), entity.getCreatedAt(), entity.getUpdatedAt());
+    public record RegistrationCodeResponse(String id, String name, String description, boolean enabled, Instant createdAt, Instant updatedAt, String code) {
+        static RegistrationCodeResponse from(ReporterRegistrationCodeEntity entity, String code) {
+            return new RegistrationCodeResponse(entity.getId(), entity.getName(), entity.getDescription(), entity.isEnabled(), entity.getCreatedAt(), entity.getUpdatedAt(), code);
         }
     }
 

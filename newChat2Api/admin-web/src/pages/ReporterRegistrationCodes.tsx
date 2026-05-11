@@ -31,6 +31,7 @@ export function ReporterRegistrationCodes() {
   const [editingCode, setEditingCode] = useState<ReporterRegistrationCode | null>(null)
   const [editName, setEditName] = useState('')
   const [editDescription, setEditDescription] = useState('')
+  const [editCode, setEditCode] = useState('')
   const [saving, setSaving] = useState(false)
   const { msg, toast } = useToast()
 
@@ -80,15 +81,17 @@ export function ReporterRegistrationCodes() {
     setEditingCode(code)
     setEditName(code.name)
     setEditDescription(code.description || '')
+    setEditCode('')
   }
 
   async function saveEdit() {
     if (!editingCode || !editName.trim()) return
     setSaving(true)
     try {
-      const updated = await api.updateReporterRegistrationCode(editingCode.id, { name: editName.trim(), description: editDescription.trim() || undefined })
+      const updated = await api.updateReporterRegistrationCode(editingCode.id, { name: editName.trim(), description: editDescription.trim() || undefined, code: editCode.trim() || undefined })
       setCodes((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
       setEditingCode(null)
+      setEditCode('')
       toast('注册口令已更新')
     } catch (error) {
       toast(error instanceof Error ? error.message : '保存失败', false)
@@ -129,7 +132,7 @@ export function ReporterRegistrationCodes() {
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle className="text-base">口令列表</CardTitle>
-            <CardDescription>{codes.length} 个注册口令，明文只会在创建时显示一次</CardDescription>
+            <CardDescription>{codes.length} 个注册口令，可在列表中复制给 Reporter 客户端使用</CardDescription>
           </div>
           <Button variant="ghost" size="sm" onClick={load} disabled={loading}>
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
@@ -156,6 +159,14 @@ export function ReporterRegistrationCodes() {
                       <Badge variant={code.enabled ? 'default' : 'secondary'}>{code.enabled ? '启用' : '禁用'}</Badge>
                     </div>
                     {code.description && <p className="text-xs text-muted-foreground">{code.description}</p>}
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="font-mono truncate">{code.code || '此口令创建于加密保存前，请编辑重置后再复制'}</span>
+                      {code.code && (
+                        <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => copy(code.code!)}>
+                          <Copy className="h-3 w-3 mr-1" />复制
+                        </Button>
+                      )}
+                    </div>
                     <p className="text-xs text-muted-foreground">创建时间：{new Date(code.createdAt).toLocaleString('zh-CN')}</p>
                   </div>
                   <Switch checked={code.enabled} onCheckedChange={() => toggleCode(code)} />
@@ -189,7 +200,7 @@ export function ReporterRegistrationCodes() {
             <div className="space-y-2">
               <Label>自定义口令</Label>
               <Input type="password" value={manualCode} onChange={(event) => setManualCode(event.target.value)} placeholder="留空则自动生成" />
-              <p className="text-xs text-muted-foreground">至少 8 位；后端只保存哈希，明文只会在创建后显示一次。</p>
+              <p className="text-xs text-muted-foreground">至少 8 位；后端会保存哈希用于校验，并加密保存口令用于后续复制。</p>
             </div>
           </div>
           <DialogFooter>
@@ -213,6 +224,11 @@ export function ReporterRegistrationCodes() {
               <Label>备注</Label>
               <Input value={editDescription} onChange={(event) => setEditDescription(event.target.value)} />
             </div>
+            <div className="space-y-2">
+              <Label>重置口令</Label>
+              <Input type="password" value={editCode} onChange={(event) => setEditCode(event.target.value)} placeholder="留空则不修改" />
+              <p className="text-xs text-muted-foreground">需要更换口令或历史口令无法复制时填写。</p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingCode(null)}>取消</Button>
@@ -227,7 +243,7 @@ export function ReporterRegistrationCodes() {
             <DialogTitle>注册口令已生成</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <p className="text-sm text-muted-foreground">请立即复制保存，关闭后无法再次查看明文。</p>
+            <p className="text-sm text-muted-foreground">可以立即复制保存，之后也可以在列表中再次复制。</p>
             <div className="flex items-center gap-2 rounded-md border bg-muted/40 p-3 font-mono text-sm break-all">
               <span className="flex-1">{createdCode?.code}</span>
               <Button variant="ghost" size="icon" onClick={() => createdCode && copy(createdCode.code)}>

@@ -15,11 +15,13 @@ public class ReporterRegistrationCodeService {
     private final ReporterRegistrationCodeRepository repository;
     private final PasswordEncoder passwordEncoder;
     private final IdService idService;
+    private final EncryptionService encryptionService;
 
-    public ReporterRegistrationCodeService(ReporterRegistrationCodeRepository repository, PasswordEncoder passwordEncoder, IdService idService) {
+    public ReporterRegistrationCodeService(ReporterRegistrationCodeRepository repository, PasswordEncoder passwordEncoder, IdService idService, EncryptionService encryptionService) {
         this.repository = repository;
         this.passwordEncoder = passwordEncoder;
         this.idService = idService;
+        this.encryptionService = encryptionService;
     }
 
     public List<ReporterRegistrationCodeEntity> list() {
@@ -34,6 +36,7 @@ public class ReporterRegistrationCodeService {
         entity.setName(normalizeName(name));
         entity.setDescription(blankToNull(description));
         entity.setCodeHash(passwordEncoder.encode(plainCode));
+        entity.setEncryptedCode(encryptionService.encrypt(plainCode));
         entity.setEnabled(true);
         entity.setCreatedAt(Instant.now());
         entity.setUpdatedAt(Instant.now());
@@ -55,6 +58,7 @@ public class ReporterRegistrationCodeService {
             String nextCode = String.valueOf(request.get("code")).trim();
             validateCode(nextCode);
             entity.setCodeHash(passwordEncoder.encode(nextCode));
+            entity.setEncryptedCode(encryptionService.encrypt(nextCode));
         }
         entity.setUpdatedAt(Instant.now());
         return repository.save(entity);
@@ -70,6 +74,13 @@ public class ReporterRegistrationCodeService {
             return false;
         }
         return repository.findByEnabledTrue().stream().anyMatch(entity -> passwordEncoder.matches(code, entity.getCodeHash()));
+    }
+
+    public String decryptCode(ReporterRegistrationCodeEntity entity) {
+        if (entity.getEncryptedCode() == null || entity.getEncryptedCode().isBlank()) {
+            return null;
+        }
+        return encryptionService.decrypt(entity.getEncryptedCode());
     }
 
     private String normalizeName(String name) {

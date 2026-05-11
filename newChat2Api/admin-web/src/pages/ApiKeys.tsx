@@ -33,6 +33,14 @@ function toggleModel(models: string[], model: string) {
   return [...models, model]
 }
 
+function providerPermission(providerId: string) {
+  return `provider:${providerId}`
+}
+
+function isProviderPermission(value: string) {
+  return value.startsWith('provider:')
+}
+
 export function ApiKeys() {
   const [keys, setKeys] = useState<ApiKey[]>([])
   const [providers, setProviders] = useState<Provider[]>([])
@@ -57,6 +65,8 @@ export function ApiKeys() {
       .filter((model) => model && model.toLowerCase() !== 'all')
     return Array.from(new Set(models)).sort((a, b) => a.localeCompare(b))
   }, [providers])
+
+  const providerOptions = useMemo(() => providers.filter((provider) => (provider.supportedModels || []).length > 0), [providers])
 
   async function load() {
     setLoading(true)
@@ -177,8 +187,16 @@ export function ApiKeys() {
   function modelSummary(models?: string[]) {
     if (isAllModels(models)) return '全部模型'
     if (!models || models.length === 0) return '全部模型'
-    if (models.length <= 3) return models.join(', ')
-    return `${models.slice(0, 3).join(', ')} 等 ${models.length} 个模型`
+    const providerNames = models
+      .filter(isProviderPermission)
+      .map((value) => providers.find((provider) => provider.id === value.slice('provider:'.length))?.name || value)
+    const fixedModels = models.filter((value) => !isProviderPermission(value))
+    const parts = [
+      ...providerNames.map((name) => `${name} 全部模型`),
+      ...fixedModels,
+    ]
+    if (parts.length <= 3) return parts.join(', ')
+    return `${parts.slice(0, 3).join(', ')} 等 ${parts.length} 项权限`
   }
 
   function renderModelSelector(allModels: boolean, allowedModels: string[], setAllModels: (value: boolean) => void, setAllowedModels: (value: string[]) => void) {
@@ -192,27 +210,57 @@ export function ApiKeys() {
           <Switch checked={allModels} onCheckedChange={setAllModels} />
         </div>
         {!allModels && (
-          <div className="space-y-2">
-            <Label>允许使用的模型</Label>
-            {modelOptions.length === 0 ? (
-              <div className="rounded-md border p-3 text-sm text-muted-foreground">暂无可选模型，请先配置并启用 Provider 模型</div>
-            ) : (
-              <ScrollArea className="h-52 rounded-md border">
-                <div className="space-y-2 p-3">
-                  {modelOptions.map((model) => (
-                    <label key={model} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4"
-                        checked={allowedModels.includes(model)}
-                        onChange={() => setAllowedModels(toggleModel(allowedModels, model))}
-                      />
-                      <span className="font-mono text-xs">{model}</span>
-                    </label>
-                  ))}
-                </div>
-              </ScrollArea>
-            )}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>允许使用的模型提供商</Label>
+              {providerOptions.length === 0 ? (
+                <div className="rounded-md border p-3 text-sm text-muted-foreground">暂无可选模型提供商，请先配置 Provider 模型</div>
+              ) : (
+                <ScrollArea className="h-40 rounded-md border">
+                  <div className="space-y-2 p-3">
+                    {providerOptions.map((provider) => {
+                      const permission = providerPermission(provider.id)
+                      return (
+                        <label key={provider.id} className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 h-4 w-4"
+                            checked={allowedModels.includes(permission)}
+                            onChange={() => setAllowedModels(toggleModel(allowedModels, permission))}
+                          />
+                          <span className="min-w-0">
+                            <span className="block font-medium">{provider.name}</span>
+                            <span className="block text-xs text-muted-foreground">{provider.supportedModels.length} 个模型，包含后续刷新后的该提供商模型</span>
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </ScrollArea>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>允许使用的固定模型</Label>
+              {modelOptions.length === 0 ? (
+                <div className="rounded-md border p-3 text-sm text-muted-foreground">暂无可选模型，请先配置并启用 Provider 模型</div>
+              ) : (
+                <ScrollArea className="h-52 rounded-md border">
+                  <div className="space-y-2 p-3">
+                    {modelOptions.map((model) => (
+                      <label key={model} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4"
+                          checked={allowedModels.includes(model)}
+                          onChange={() => setAllowedModels(toggleModel(allowedModels, model))}
+                        />
+                        <span className="font-mono text-xs">{model}</span>
+                      </label>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </div>
           </div>
         )}
       </div>
