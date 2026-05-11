@@ -22,15 +22,7 @@ public interface ProviderForwarder {
             return;
         }
         String body = result.body() == null ? "" : result.body();
-        if (!body.isBlank()) {
-            if (body.trim().startsWith("data:")) {
-                writer.writeRaw(body.endsWith("\n\n") ? body : body + "\n\n");
-            } else {
-                writer.writeRaw("data: " + body + "\n\ndata: [DONE]\n\n");
-            }
-        } else {
-            writer.writeDone();
-        }
+        writer.writeRaw(OpenAiStreamFormat.toStream(body, actualModel));
         onComplete.accept(body);
     }
 }

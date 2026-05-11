@@ -21,6 +21,7 @@ import java.io.InputStreamReader;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -150,6 +151,7 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
         long created = Instant.now().getEpochSecond();
         StringBuilder content = new StringBuilder();
         StringBuilder reasoning = new StringBuilder();
+        StringBuilder summaryReasoning = new StringBuilder();
         String[] responseId = {chatId};
         boolean[] roleEmitted = {false};
         String[] finishReason = {"stop"};
@@ -173,7 +175,7 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
                                     eventBuf.setLength(0);
                                     if ("[DONE]".equals(eventData)) break;
                                     try {
-                                        processQwenChunk(eventData, writer, content, reasoning,
+                                        processQwenChunk(eventData, writer, content, reasoning, summaryReasoning,
                                                 responseId, roleEmitted, finishReason, actualModel, created);
                                     } catch (Exception e) {
                                         throw new IOException(e.getMessage(), e);
@@ -182,7 +184,7 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
                             }
                             if (eventBuf.length() > 0 && !"[DONE]".equals(eventBuf.toString())) {
                                 try {
-                                    processQwenChunk(eventBuf.toString(), writer, content, reasoning,
+                                    processQwenChunk(eventBuf.toString(), writer, content, reasoning, summaryReasoning,
                                             responseId, roleEmitted, finishReason, actualModel, created);
                                 } catch (Exception ignored) {}
                             }
@@ -197,12 +199,13 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
         writer.writeEvent(sseChunk(responseId[0], actualModel, created, Map.of(), finishReason[0]));
         writer.writeDone();
         sessionStore.save(request, options.recordMode(), chatId, responseId[0]);
-        onComplete.accept(buildCompletionJson(actualModel, responseId[0], created, content.toString(), reasoning.toString()));
+        String finalReasoning = reasoning.isEmpty() ? summaryReasoning.toString() : reasoning.toString();
+        onComplete.accept(buildCompletionJson(actualModel, responseId[0], created, content.toString(), finalReasoning));
     }
 
     @SuppressWarnings("unchecked")
     private void processQwenChunk(String eventData, SseStreamWriter writer,
-                                   StringBuilder content, StringBuilder reasoning,
+                                   StringBuilder content, StringBuilder reasoning, StringBuilder summaryReasoning,
                                    String[] responseId, boolean[] roleEmitted,
                                    String[] finishReason, String model, long created) throws Exception {
         Map<String, Object> event = objectMapper.readValue(eventData, new TypeReference<>() {});
@@ -232,6 +235,16 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
         if ("think".equals(phase) && !"finished".equals(status) && !text.isBlank()) {
             reasoning.append(text);
             writer.writeEvent(sseChunk(responseId[0], model, created, Map.of("reasoning_content", text), null));
+        } else if ("thinking_summary".equals(phase) && reasoning.isEmpty()) {
+            String summary = summary(delta.get("extra"));
+            if (summary.length() > summaryReasoning.length()) {
+                String deltaText = summary.substring(summaryReasoning.length());
+                summaryReasoning.setLength(0);
+                summaryReasoning.append(summary);
+                if (!deltaText.isBlank()) {
+                    writer.writeEvent(sseChunk(responseId[0], model, created, Map.of("reasoning_content", deltaText), null));
+                }
+            }
         } else if (("answer".equals(phase) || (phase.isBlank() && !text.isBlank())) && !text.isBlank()) {
             content.append(text);
             writer.writeEvent(sseChunk(responseId[0], model, created, Map.of("content", text), null));
@@ -242,6 +255,27 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
                 }
             }
         }
+    }
+
+    private String summary(Object extra) {
+        if (!(extra instanceof Map<?, ?> extraMap)) {
+            return "";
+        }
+        Object summaryThought = extraMap.get("summary_thought");
+        if (!(summaryThought instanceof Map<?, ?> summaryMap)) {
+            return "";
+        }
+        Object value = summaryMap.get("content");
+        if (value instanceof List<?> list) {
+            List<String> parts = new ArrayList<>();
+            for (Object item : list) {
+                if (item != null) {
+                    parts.add(String.valueOf(item));
+                }
+            }
+            return String.join("\n", parts);
+        }
+        return value == null ? "" : String.valueOf(value);
     }
 
     private Map<String, Object> sseChunk(String id, String model, long created, Map<String, Object> delta, String finishReason) {

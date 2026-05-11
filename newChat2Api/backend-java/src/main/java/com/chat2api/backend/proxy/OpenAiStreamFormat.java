@@ -1,31 +1,27 @@
-package com.chat2api.backend.service;
+package com.chat2api.backend.proxy;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-@Service
-public class OpenAiResponseService {
-    private final ObjectMapper objectMapper;
+final class OpenAiStreamFormat {
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    public OpenAiResponseService(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
-    }
+    private OpenAiStreamFormat() {}
 
-    public String toStream(String body, String model) {
+    static String toStream(String body, String model) {
         if (body == null || body.isBlank()) {
-            return doneOnly();
+            return "data: [DONE]\n\n";
         }
         if (body.trim().startsWith("data:")) {
             return body.endsWith("\n\n") ? body : body + "\n\n";
         }
         try {
-            Map<String, Object> response = objectMapper.readValue(body, new TypeReference<>() {});
+            Map<String, Object> response = OBJECT_MAPPER.readValue(body, new TypeReference<>() {});
             Map<String, Object> message = firstMessage(response);
             String content = message.get("content") == null ? "" : String.valueOf(message.get("content"));
             String reasoning = message.get("reasoning_content") == null ? "" : String.valueOf(message.get("reasoning_content"));
@@ -52,7 +48,7 @@ public class OpenAiResponseService {
         }
     }
 
-    private Map<String, Object> chunk(String id, long created, String model, Map<String, Object> delta, String finishReason) {
+    private static Map<String, Object> chunk(String id, long created, String model, Map<String, Object> delta, String finishReason) {
         Map<String, Object> choice = new LinkedHashMap<>();
         choice.put("index", 0);
         choice.put("delta", delta);
@@ -67,7 +63,7 @@ public class OpenAiResponseService {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object> firstMessage(Map<String, Object> response) {
+    private static Map<String, Object> firstMessage(Map<String, Object> response) {
         Object choices = response.get("choices");
         if (choices instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> choice) {
             Object message = choice.get("message");
@@ -78,7 +74,7 @@ public class OpenAiResponseService {
         return Map.of();
     }
 
-    private long longValue(Object value, long fallback) {
+    private static long longValue(Object value, long fallback) {
         if (value instanceof Number number) {
             return number.longValue();
         }
@@ -89,13 +85,9 @@ public class OpenAiResponseService {
         }
     }
 
-    private String doneOnly() {
-        return "data: [DONE]\n\n";
-    }
-
-    private String toJson(Object value) {
+    private static String toJson(Object value) {
         try {
-            return objectMapper.writeValueAsString(value);
+            return OBJECT_MAPPER.writeValueAsString(value);
         } catch (Exception error) {
             return "{}";
         }
