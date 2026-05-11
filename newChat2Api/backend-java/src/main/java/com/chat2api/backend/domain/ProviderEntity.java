@@ -43,6 +43,9 @@ public class ProviderEntity {
     @Column(columnDefinition = "json")
     @Convert(converter = JsonMapConverter.class)
     private Map<String, Object> credentialFields = new LinkedHashMap<>();
+    @Column(columnDefinition = "json")
+    @Convert(converter = JsonMapConverter.class)
+    private Map<String, Object> settings = new LinkedHashMap<>();
     private String status = "unknown";
     private Instant lastStatusCheck;
     private Instant createdAt = Instant.now();
@@ -74,6 +77,8 @@ public class ProviderEntity {
     public void setModelMappings(Map<String, Object> modelMappings) { this.modelMappings = modelMappings; }
     public Map<String, Object> getCredentialFields() { return credentialFields; }
     public void setCredentialFields(Map<String, Object> credentialFields) { this.credentialFields = credentialFields; }
+    public Map<String, Object> getSettings() { return settings; }
+    public void setSettings(Map<String, Object> settings) { this.settings = settings; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public Instant getLastStatusCheck() { return lastStatusCheck; }

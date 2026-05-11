@@ -54,6 +54,7 @@ public class ProviderController {
         provider.setSupportedModels(input.getSupportedModels());
         provider.setModelMappings(input.getModelMappings() == null ? new LinkedHashMap<>() : input.getModelMappings());
         provider.setCredentialFields(input.getCredentialFields() == null ? new LinkedHashMap<>() : input.getCredentialFields());
+        provider.setSettings(input.getSettings() == null ? new LinkedHashMap<>() : input.getSettings());
         provider.setUpdatedAt(Instant.now());
         return ApiResponse.ok(providerRepository.save(provider));
     }

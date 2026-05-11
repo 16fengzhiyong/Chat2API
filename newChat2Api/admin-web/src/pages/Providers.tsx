@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Search, RefreshCw, CheckCircle, XCircle, Users, ChevronRight, Trash2, Edit, RotateCcw, Zap, Plus } from 'lucide-react'
+import { Search, RefreshCw, CheckCircle, XCircle, Users, ChevronRight, Trash2, Edit, RotateCcw, Zap, Plus, Settings } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { api } from '@/api'
 import type { Provider, Account } from '@/types'
 
@@ -16,6 +17,38 @@ function useToast() {
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
   const toast = (text: string, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 3000) }
   return { msg, toast }
+}
+
+function accountStatusBadgeClass(status: string) {
+  switch (status.toUpperCase()) {
+    case 'ACTIVE':
+      return 'bg-green-100 text-green-700 border-green-200 hover:bg-green-100'
+    case 'ERROR':
+    case 'EXPIRED':
+      return 'bg-red-100 text-red-700 border-red-200 hover:bg-red-100'
+    case 'INACTIVE':
+      return 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-100'
+    default:
+      return 'bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-100'
+  }
+}
+
+function qwenSettings(provider: Provider) {
+  const qwen = provider.settings?.qwen
+  if (qwen && typeof qwen === 'object' && !Array.isArray(qwen)) {
+    return qwen as Record<string, unknown>
+  }
+  return {}
+}
+
+function qwenThinkingMode(provider: Provider) {
+  const value = String(qwenSettings(provider).thinkingMode ?? 'auto')
+  return ['auto', 'thinking', 'fast'].includes(value) ? value : 'auto'
+}
+
+function qwenRecordMode(provider: Provider) {
+  const value = String(qwenSettings(provider).recordMode ?? 'record')
+  return value === 'local' ? 'local' : 'record'
 }
 
 function AccountPanel({ provider, onClose }: { provider: Provider; onClose: () => void }) {
@@ -107,8 +140,8 @@ function AccountPanel({ provider, onClose }: { provider: Provider; onClose: () =
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-sm">{acc.name}</span>
                       <Badge
-                        variant={acc.status === 'active' ? 'default' : 'destructive'}
-                        className={`text-xs ${acc.status === 'active' ? 'bg-green-100 text-green-700 hover:bg-green-100' : ''}`}
+                        variant="outline"
+                        className={`text-xs ${accountStatusBadgeClass(acc.status)}`}
                       >
                         {acc.status}
                       </Badge>
@@ -170,6 +203,10 @@ export function Providers() {
   const [activeProvider, setActiveProvider] = useState<Provider | null>(null)
   const [statusChecking, setStatusChecking] = useState<Set<string>>(new Set())
   const [refreshing, setRefreshing] = useState<Set<string>>(new Set())
+  const [qwenEditing, setQwenEditing] = useState<Provider | null>(null)
+  const [qwenThinking, setQwenThinking] = useState('auto')
+  const [qwenRecord, setQwenRecord] = useState('record')
+  const [qwenSaving, setQwenSaving] = useState(false)
   const { msg, toast } = useToast()
 
   async function load() {
@@ -217,6 +254,32 @@ export function Providers() {
       await api.clearProviderChats(id)
       toast('会话已清除')
     } catch { toast('操作失败', false) }
+  }
+
+  function openQwenSettings(provider: Provider) {
+    setQwenEditing(provider)
+    setQwenThinking(qwenThinkingMode(provider))
+    setQwenRecord(qwenRecordMode(provider))
+  }
+
+  async function saveQwenSettings() {
+    if (!qwenEditing) return
+    setQwenSaving(true)
+    try {
+      const settings = {
+        ...(qwenEditing.settings || {}),
+        qwen: {
+          ...qwenSettings(qwenEditing),
+          thinkingMode: qwenThinking,
+          recordMode: qwenRecord,
+        },
+      }
+      const updated = await api.updateProvider(qwenEditing.id, { ...qwenEditing, settings })
+      setProviders((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
+      setQwenEditing(null)
+      toast('Qwen 设置已保存')
+    } catch { toast('保存失败', false) }
+    finally { setQwenSaving(false) }
   }
 
   const filtered = providers.filter((p) => {
@@ -355,6 +418,16 @@ export function Providers() {
                   >
                     <Trash2 className="h-3 w-3 mr-1" />清除会话
                   </Button>
+                  {p.vendor === 'qwen-ai' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => openQwenSettings(p)}
+                    >
+                      <Settings className="h-3 w-3 mr-1" />Qwen 设置
+                    </Button>
+                  )}
                   <Button
                     variant="default"
                     size="sm"
@@ -375,6 +448,45 @@ export function Providers() {
         <Plus className="h-4 w-4 mx-auto mb-1 opacity-40" />
         <p>新提供商需通过 Reporter 客户端上报账号后自动注册</p>
       </div>
+
+      <Dialog open={!!qwenEditing} onOpenChange={(open) => !open && setQwenEditing(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Qwen 设置</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>默认思考模式</Label>
+              <Select value={qwenThinking} onValueChange={setQwenThinking}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">自动模式</SelectItem>
+                  <SelectItem value="thinking">思考模式</SelectItem>
+                  <SelectItem value="fast">快速模式</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">API 请求携带 enable_thinking 时会覆盖此默认值；未携带时使用这里的设置。</p>
+            </div>
+            <div className="space-y-2">
+              <Label>对话记录模式</Label>
+              <Select value={qwenRecord} onValueChange={setQwenRecord}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="record">有记录模式</SelectItem>
+                  <SelectItem value="local">无记录模式</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">有记录模式会在同一 sessionId 下复用 Qwen 会话，无记录模式使用本地临时会话。</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQwenEditing(null)}>取消</Button>
+            <Button onClick={saveQwenSettings} disabled={qwenSaving}>{qwenSaving ? '保存中...' : '保存'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

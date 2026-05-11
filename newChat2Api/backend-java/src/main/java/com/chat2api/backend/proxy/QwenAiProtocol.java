@@ -49,40 +49,43 @@ final class QwenAiProtocol {
         return mapped;
     }
 
-    boolean shouldEnableThinking(Map<String, Object> request, String originalModel, String actualModel) {
+    String thinkingMode(Map<String, Object> request, String originalModel, String actualModel, QwenAiOptions options) {
         String model = originalModel == null || originalModel.isBlank() ? actualModel : originalModel;
         String lower = model.toLowerCase();
         if (lower.endsWith("-thinking")) {
-            return true;
+            return QwenAiOptions.THINKING_THINKING;
         }
         if (lower.endsWith("-fast")) {
-            return false;
+            return QwenAiOptions.THINKING_FAST;
         }
         if (lower.contains("think") || lower.contains("r1")) {
-            return true;
+            return QwenAiOptions.THINKING_THINKING;
         }
         if (request.get("enable_thinking") != null) {
-            return Boolean.TRUE.equals(request.get("enable_thinking"));
+            return Boolean.TRUE.equals(request.get("enable_thinking")) ? QwenAiOptions.THINKING_THINKING : QwenAiOptions.THINKING_FAST;
         }
-        return request.get("reasoning_effort") != null && !Boolean.FALSE.equals(request.get("reasoning_effort"));
+        if (request.get("reasoning_effort") != null && !Boolean.FALSE.equals(request.get("reasoning_effort"))) {
+            return QwenAiOptions.THINKING_THINKING;
+        }
+        return options.thinkingMode();
     }
 
-    Map<String, Object> newChatBody(String modelId) {
+    Map<String, Object> newChatBody(String modelId, String chatMode) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("title", "OpenAI_API_Chat");
         payload.put("models", List.of(modelId));
-        payload.put("chat_mode", "normal");
+        payload.put("chat_mode", chatMode);
         payload.put("chat_type", "t2t");
         payload.put("timestamp", Instant.now().toEpochMilli());
         payload.put("project_id", "");
         return payload;
     }
 
-    Map<String, Object> completionBody(Map<String, Object> request, String modelId, String chatId, boolean thinking) {
+    Map<String, Object> completionBody(Map<String, Object> request, String modelId, String chatId, String parentId, String chatMode, String thinkingMode) {
         long timestamp = Instant.now().getEpochSecond();
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("fid", uuid());
-        message.put("parentId", null);
+        message.put("parentId", blankToNull(parentId));
         message.put("childrenIds", List.of(uuid()));
         message.put("role", "user");
         message.put("content", promptContent(request));
@@ -91,18 +94,18 @@ final class QwenAiProtocol {
         message.put("timestamp", timestamp);
         message.put("models", List.of(modelId));
         message.put("chat_type", "t2t");
-        message.put("feature_config", featureConfig(request, thinking));
+        message.put("feature_config", featureConfig(request, thinkingMode));
         message.put("extra", meta());
         message.put("sub_chat_type", "t2t");
-        message.put("parent_id", null);
+        message.put("parent_id", blankToNull(parentId));
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("stream", true);
         payload.put("version", "2.1");
         payload.put("incremental_output", true);
         payload.put("chat_id", chatId);
-        payload.put("chat_mode", "normal");
+        payload.put("chat_mode", chatMode);
         payload.put("model", modelId);
-        payload.put("parent_id", null);
+        payload.put("parent_id", blankToNull(parentId));
         payload.put("messages", List.of(message));
         payload.put("timestamp", timestamp);
         return payload;
@@ -139,15 +142,16 @@ final class QwenAiProtocol {
         return headers;
     }
 
-    private Map<String, Object> featureConfig(Map<String, Object> request, boolean thinking) {
+    private Map<String, Object> featureConfig(Map<String, Object> request, String thinkingMode) {
+        boolean thinking = QwenAiOptions.THINKING_THINKING.equals(thinkingMode) || QwenAiOptions.THINKING_AUTO.equals(thinkingMode);
         Map<String, Object> featureConfig = new LinkedHashMap<>();
         featureConfig.put("thinking_enabled", thinking);
         featureConfig.put("output_schema", "phase");
         featureConfig.put("research_mode", "normal");
-        featureConfig.put("auto_thinking", false);
-        featureConfig.put("thinking_mode", thinking ? "Thinking" : "Fast");
+        featureConfig.put("auto_thinking", QwenAiOptions.THINKING_AUTO.equals(thinkingMode));
+        featureConfig.put("thinking_mode", upstreamThinkingMode(thinkingMode));
         featureConfig.put("auto_search", true);
-        if (thinking) {
+        if (QwenAiOptions.THINKING_THINKING.equals(thinkingMode) || QwenAiOptions.THINKING_AUTO.equals(thinkingMode)) {
             featureConfig.put("thinking_format", "summary");
         }
         Object budget = request.get("thinking_budget");
@@ -155,6 +159,14 @@ final class QwenAiProtocol {
             featureConfig.put("thinking_budget", budget);
         }
         return featureConfig;
+    }
+
+    private String upstreamThinkingMode(String thinkingMode) {
+        return switch (thinkingMode) {
+            case QwenAiOptions.THINKING_THINKING -> "Thinking";
+            case QwenAiOptions.THINKING_FAST -> "Fast";
+            default -> "Auto";
+        };
     }
 
     private String promptContent(Map<String, Object> request) {
@@ -222,5 +234,9 @@ final class QwenAiProtocol {
 
     private String uuid() {
         return UUID.randomUUID().toString();
+    }
+
+    private Object blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 }

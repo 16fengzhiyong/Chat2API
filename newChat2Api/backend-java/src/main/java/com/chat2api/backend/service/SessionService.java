@@ -69,8 +69,9 @@ public class SessionService {
         if (!assistant.isEmpty()) {
             messages.add(assistant);
         }
-        SessionMetadata metadata = new SessionMetadata(messages);
-        session.setMetadataJson(toJson(Map.of("messages", metadata.messages())));
+        Map<String, Object> metadata = sessionRepository.findById(session.getId()).map(this::metadataMap).orElseGet(() -> metadataMap(session));
+        metadata.put("messages", messages);
+        session.setMetadataJson(toJson(metadata));
         session.setUpdatedAt(Instant.now());
         sessionRepository.save(session);
     }
@@ -114,10 +115,18 @@ public class SessionService {
 
     private SessionMetadata metadata(SessionEntity session) {
         try {
-            Map<String, Object> parsed = objectMapper.readValue(session.getMetadataJson(), new TypeReference<>() {});
+            Map<String, Object> parsed = metadataMap(session);
             return new SessionMetadata(messages(parsed.get("messages")));
         } catch (Exception error) {
             return new SessionMetadata(List.of());
+        }
+    }
+
+    private Map<String, Object> metadataMap(SessionEntity session) {
+        try {
+            return new LinkedHashMap<>(objectMapper.readValue(session.getMetadataJson(), new TypeReference<>() {}));
+        } catch (Exception error) {
+            return new LinkedHashMap<>();
         }
     }
 

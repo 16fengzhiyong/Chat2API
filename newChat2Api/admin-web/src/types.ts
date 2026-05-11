@@ -23,6 +23,7 @@ export interface Provider {
   description?: string
   supportedModels: string[]
   modelMappings: Record<string, unknown>
+  settings?: Record<string, unknown>
   status?: string
 }
 

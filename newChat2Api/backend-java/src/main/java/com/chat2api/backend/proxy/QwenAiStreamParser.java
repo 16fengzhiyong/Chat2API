@@ -16,8 +16,11 @@ final class QwenAiStreamParser {
         this.objectMapper = objectMapper;
     }
 
-    String toOpenAiStream(String upstream, String chatId, String model) throws Exception {
-        ParsedStream parsed = parse(upstream, chatId);
+    ParsedStream parsed(String upstream, String chatId) throws Exception {
+        return parse(upstream, chatId);
+    }
+
+    String toOpenAiStream(ParsedStream parsed, String model) throws Exception {
         long created = Instant.now().getEpochSecond();
         StringBuilder builder = new StringBuilder();
         if (!parsed.reasoning().isBlank()) {
@@ -33,8 +36,7 @@ final class QwenAiStreamParser {
         return builder.toString();
     }
 
-    String toOpenAiJson(String upstream, String chatId, String model) throws Exception {
-        ParsedStream parsed = parse(upstream, chatId);
+    String toOpenAiJson(ParsedStream parsed, String model) throws Exception {
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("role", "assistant");
         message.put("content", parsed.content());
@@ -121,6 +123,10 @@ final class QwenAiStreamParser {
                 return String.valueOf(id);
             }
         }
+        Object responseId = event.get("response_id");
+        if (responseId != null && !String.valueOf(responseId).isBlank()) {
+            return String.valueOf(responseId);
+        }
         return fallback;
     }
 
@@ -184,5 +190,5 @@ final class QwenAiStreamParser {
         return objectMapper.writeValueAsString(value);
     }
 
-    private record ParsedStream(String content, String reasoning, String responseId, String finishReason) {}
+    record ParsedStream(String content, String reasoning, String responseId, String finishReason) {}
 }

@@ -12,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
+import com.chat2api.backend.repository.SessionRepository;
 
 import java.net.URI;
 import java.util.Map;
@@ -23,10 +24,12 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
     private final ObjectMapper objectMapper;
     private final QwenAiProtocol protocol = new QwenAiProtocol();
     private final QwenAiStreamParser streamParser;
+    private final QwenAiSessionStore sessionStore;
 
-    public QwenAiProviderForwarder(ObjectMapper objectMapper) {
+    public QwenAiProviderForwarder(ObjectMapper objectMapper, SessionRepository sessionRepository) {
         this.objectMapper = objectMapper;
         this.streamParser = new QwenAiStreamParser(objectMapper);
+        this.sessionStore = new QwenAiSessionStore(sessionRepository, objectMapper);
     }
 
     @Override
@@ -43,11 +46,15 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
             }
             String originalModel = request.get("model") == null ? actualModel : String.valueOf(request.get("model"));
             String modelId = protocol.mapModel(provider, actualModel);
-            boolean thinking = protocol.shouldEnableThinking(request, originalModel, actualModel);
-            String chatId = createChat(modelId, authCookie);
+            QwenAiOptions options = QwenAiOptions.from(provider);
+            String thinkingMode = protocol.thinkingMode(request, originalModel, actualModel, options);
+            String chatMode = options.chatMode();
+            QwenAiSessionStore.State state = sessionStore.load(request, options.recordMode());
+            String chatId = state.hasChat() ? state.chatId() : createChat(modelId, chatMode, authCookie);
+            String parentId = state.hasChat() ? state.parentId() : "";
             ResponseEntity<String> response = post(
                     QwenAiProtocol.BASE_URL + "/api/v2/chat/completions?chat_id=" + chatId,
-                    protocol.completionBody(request, modelId, chatId, thinking),
+                    protocol.completionBody(request, modelId, chatId, parentId, chatMode, thinkingMode),
                     authCookie,
                     "completion",
                     chatId
@@ -56,10 +63,12 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
                 return ForwardResult.fail(response.getStatusCode().value(), response.getBody() == null ? "Qwen AI request failed" : response.getBody());
             }
             String upstream = response.getBody() == null ? "" : response.getBody();
+            QwenAiStreamParser.ParsedStream parsed = streamParser.parsed(upstream, chatId);
+            sessionStore.save(request, options.recordMode(), chatId, parsed.responseId());
             boolean stream = Boolean.TRUE.equals(request.get("stream"));
             return stream
-                    ? ForwardResult.ok(200, "text/event-stream; charset=utf-8", streamParser.toOpenAiStream(upstream, chatId, actualModel))
-                    : ForwardResult.ok(200, MediaType.APPLICATION_JSON_VALUE, streamParser.toOpenAiJson(upstream, chatId, actualModel));
+                    ? ForwardResult.ok(200, "text/event-stream; charset=utf-8", streamParser.toOpenAiStream(parsed, actualModel))
+                    : ForwardResult.ok(200, MediaType.APPLICATION_JSON_VALUE, streamParser.toOpenAiJson(parsed, actualModel));
         } catch (HttpStatusCodeException error) {
             return ForwardResult.fail(error.getStatusCode().value(), error.getResponseBodyAsString());
         } catch (Exception error) {
@@ -67,10 +76,10 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
         }
     }
 
-    private String createChat(String modelId, String authCookie) throws Exception {
+    private String createChat(String modelId, String chatMode, String authCookie) throws Exception {
         ResponseEntity<String> response = post(
                 QwenAiProtocol.BASE_URL + "/api/v2/chats/new",
-                protocol.newChatBody(modelId),
+                protocol.newChatBody(modelId, chatMode),
                 authCookie,
                 "new-chat",
                 null
