@@ -5,6 +5,7 @@ import com.chat2api.backend.domain.ReporterClientEntity;
 import com.chat2api.backend.repository.ProviderRepository;
 import com.chat2api.backend.repository.ReporterClientRepository;
 import com.chat2api.backend.service.AccountService;
+import com.chat2api.backend.service.AccountValidationService;
 import com.chat2api.backend.service.IdService;
 import com.chat2api.backend.service.ReporterRegistrationCodeService;
 import org.springframework.http.HttpStatus;
@@ -24,13 +25,15 @@ public class ReporterController {
     private final ReporterClientRepository reporterClientRepository;
     private final ProviderRepository providerRepository;
     private final AccountService accountService;
+    private final AccountValidationService accountValidationService;
     private final IdService idService;
     private final ReporterRegistrationCodeService registrationCodeService;
 
-    public ReporterController(ReporterClientRepository reporterClientRepository, ProviderRepository providerRepository, AccountService accountService, IdService idService, ReporterRegistrationCodeService registrationCodeService) {
+    public ReporterController(ReporterClientRepository reporterClientRepository, ProviderRepository providerRepository, AccountService accountService, AccountValidationService accountValidationService, IdService idService, ReporterRegistrationCodeService registrationCodeService) {
         this.reporterClientRepository = reporterClientRepository;
         this.providerRepository = providerRepository;
         this.accountService = accountService;
+        this.accountValidationService = accountValidationService;
         this.idService = idService;
         this.registrationCodeService = registrationCodeService;
     }
@@ -38,8 +41,9 @@ public class ReporterController {
     @PostMapping("/register")
     public ApiResponse<Map<String, Object>> register(@RequestBody Map<String, Object> request) {
         String registrationCode = String.valueOf(request.getOrDefault("registrationCode", ""));
-        if (!registrationCodeService.verify(registrationCode)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid reporter registration code");
+        ReporterRegistrationCodeService.VerificationResult verification = registrationCodeService.verifyWithReason(registrationCode);
+        if (!verification.valid()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, verification.message());
         }
         ReporterClientEntity client = new ReporterClientEntity();
         client.setId(idService.id("reporter"));
@@ -68,14 +72,19 @@ public class ReporterController {
         if (providerId.isBlank() || !providerRepository.existsById(providerId)) {
             throw new IllegalArgumentException("Provider not found: " + providerId);
         }
+        String name = String.valueOf(request.getOrDefault("name", "")).trim();
+        if (name.isBlank()) {
+            throw new IllegalArgumentException("Account name is required");
+        }
         AccountEntity account = accountService.create(
                 providerId,
-                String.valueOf(request.getOrDefault("name", "Uploaded Account")),
+                name,
                 request.get("email") == null ? null : String.valueOf(request.get("email")),
                 castStringMap(request.get("credentials")),
                 request.get("dailyLimit") == null ? null : Long.valueOf(String.valueOf(request.get("dailyLimit")))
         );
-        return ApiResponse.ok(account);
+        accountValidationService.validate(account.getId());
+        return ApiResponse.ok(accountService.get(account.getId()));
     }
 
     private ReporterClientEntity requireClient(String clientId, String secret) {

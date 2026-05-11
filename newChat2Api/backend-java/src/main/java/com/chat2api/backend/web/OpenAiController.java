@@ -84,17 +84,29 @@ public class OpenAiController {
     }
 
     @GetMapping("/v1/models")
-    public Map<String, Object> models() {
+    public ResponseEntity<Map<String, Object>> models(HttpServletRequest servletRequest) {
+        AuthenticationResult authentication = authenticate(servletRequest);
+        if (!authentication.allowed()) {
+            return ResponseEntity.status(401).body(openAiErrorBody("Invalid API key"));
+        }
         List<Map<String, Object>> models = providerRepository.findByEnabledTrue().stream()
                 .flatMap(provider -> provider.getSupportedModels().stream())
                 .distinct()
+                .filter(model -> authentication.apiKey() == null || apiKeyService.isModelAllowed(authentication.apiKey(), model))
                 .map(model -> Map.<String, Object>of("id", model, "object", "model", "created", 0, "owned_by", "chat2api"))
                 .toList();
-        return Map.of("object", "list", "data", models);
+        return ResponseEntity.ok(Map.of("object", "list", "data", models));
     }
 
     @GetMapping("/v1/models/{model}")
-    public ResponseEntity<Map<String, Object>> model(@PathVariable String model) {
+    public ResponseEntity<Map<String, Object>> model(@PathVariable String model, HttpServletRequest servletRequest) {
+        AuthenticationResult authentication = authenticate(servletRequest);
+        if (!authentication.allowed()) {
+            return ResponseEntity.status(401).body(openAiErrorBody("Invalid API key"));
+        }
+        if (authentication.apiKey() != null && !apiKeyService.isModelAllowed(authentication.apiKey(), model)) {
+            return ResponseEntity.status(403).body(openAiErrorBody("API key is not allowed to use model: " + model));
+        }
         boolean exists = providerRepository.findByEnabledTrue().stream().anyMatch(provider -> provider.getSupportedModels().contains(model)) || modelMappingRepository.existsById(model);
         if (!exists) {
             return ResponseEntity.status(404).body(Map.of("error", Map.of("message", "Model not found", "type", "invalid_request_error")));
@@ -104,6 +116,10 @@ public class OpenAiController {
 
     private String openAiError(String message) {
         return "{\"error\":{\"message\":" + jsonString(message == null ? "Request failed" : message) + ",\"type\":\"chat2api_error\"}}";
+    }
+
+    private Map<String, Object> openAiErrorBody(String message) {
+        return Map.of("error", Map.of("message", message == null ? "Request failed" : message, "type", "chat2api_error"));
     }
 
     private AuthenticationResult authenticate(HttpServletRequest request) {

@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 @Service
@@ -44,13 +45,18 @@ public class SessionService {
         List<Map<String, Object>> history = metadata(session).messages();
         List<Map<String, Object>> incoming = messages(request.get("messages"));
         Map<String, Object> updated = new LinkedHashMap<>(request);
+        boolean clientHasHistory = false;
         if (Boolean.TRUE.equals(config.get("multiTurn")) && !history.isEmpty()) {
-            List<Map<String, Object>> merged = new ArrayList<>(history);
-            merged.addAll(incoming);
-            updated.put("messages", merged);
+            Map<String, Object> lastHistory = history.get(history.size() - 1);
+            clientHasHistory = incoming.stream().anyMatch(m -> messagesEqual(m, lastHistory));
+            if (!clientHasHistory) {
+                List<Map<String, Object>> merged = new ArrayList<>(history);
+                merged.addAll(incoming);
+                updated.put("messages", merged);
+            }
         }
         updated.put("sessionId", session.getId());
-        return new SessionContext(updated, Optional.of(session), existing.isEmpty());
+        return new SessionContext(updated, Optional.of(session), existing.isEmpty(), clientHasHistory, incoming);
     }
 
     @Transactional
@@ -64,13 +70,15 @@ public class SessionService {
             sessionRepository.deleteById(session.getId());
             return;
         }
-        List<Map<String, Object>> messages = messages(request.get("messages"));
+        List<Map<String, Object>> messagesToSave = context.clientHasHistory()
+                ? new ArrayList<>(context.incomingMessages())
+                : messages(request.get("messages"));
         Map<String, Object> assistant = assistantMessage(responseBody);
         if (!assistant.isEmpty()) {
-            messages.add(assistant);
+            messagesToSave.add(assistant);
         }
         Map<String, Object> metadata = sessionRepository.findById(session.getId()).map(this::metadataMap).orElseGet(() -> metadataMap(session));
-        metadata.put("messages", messages);
+        metadata.put("messages", messagesToSave);
         session.setMetadataJson(toJson(metadata));
         session.setUpdatedAt(Instant.now());
         sessionRepository.save(session);
@@ -152,6 +160,15 @@ public class SessionService {
             Map<String, Object> parsed = objectMapper.readValue(json, new TypeReference<>() {});
             Map<String, Object> merged = defaultConfig();
             merged.putAll(parsed);
+            if (parsed.containsKey("mode")) {
+                String mode = String.valueOf(parsed.get("mode"));
+                merged.put("multiTurn", "multi".equals(mode));
+                merged.put("deleteAfterChat", "single".equals(mode));
+            }
+            if (parsed.containsKey("ttlSeconds")) {
+                int ttlSeconds = intValue(parsed.get("ttlSeconds"), 3600);
+                merged.put("sessionTimeoutMinutes", Math.max(1, ttlSeconds / 60));
+            }
             return merged;
         } catch (Exception error) {
             return defaultConfig();
@@ -161,8 +178,10 @@ public class SessionService {
     private Map<String, Object> defaultConfig() {
         Map<String, Object> config = new LinkedHashMap<>();
         config.put("enabled", true);
+        config.put("mode", "multi");
         config.put("multiTurn", true);
         config.put("deleteAfterChat", false);
+        config.put("ttlSeconds", 3600);
         config.put("sessionTimeoutMinutes", 60);
         return config;
     }
@@ -191,6 +210,17 @@ public class SessionService {
         }
     }
 
+    private boolean messagesEqual(Map<String, Object> a, Map<String, Object> b) {
+        if (!Objects.equals(a.get("role"), b.get("role"))) {
+            return false;
+        }
+        Object ac = a.get("content");
+        Object bc = b.get("content");
+        if (ac == null && bc == null) return true;
+        if (ac == null || bc == null) return false;
+        return String.valueOf(ac).equals(String.valueOf(bc));
+    }
+
     private int intValue(Object value, int fallback) {
         if (value instanceof Number number) {
             return number.intValue();
@@ -202,6 +232,10 @@ public class SessionService {
         }
     }
 
-    public record SessionContext(Map<String, Object> request, Optional<SessionEntity> session, boolean created) {}
+    public record SessionContext(Map<String, Object> request, Optional<SessionEntity> session, boolean created, boolean clientHasHistory, List<Map<String, Object>> incomingMessages) {
+        public SessionContext(Map<String, Object> request, Optional<SessionEntity> session, boolean created) {
+            this(request, session, created, false, List.of());
+        }
+    }
     private record SessionMetadata(List<Map<String, Object>> messages) {}
 }

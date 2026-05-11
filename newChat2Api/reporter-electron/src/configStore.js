@@ -18,6 +18,7 @@ function createConfigStore(app) {
   function get() {
     return {
       backendUrl: configData.backendUrl || 'http://localhost:8080',
+      registrationCode: configData.registrationCode || '',
       clientId: configData.clientId || '',
       secret: configData.secret || '',
     }

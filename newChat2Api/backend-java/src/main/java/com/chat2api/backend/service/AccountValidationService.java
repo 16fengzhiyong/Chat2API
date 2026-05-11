@@ -30,6 +30,7 @@ public class AccountValidationService {
         Map<String, String> credentials = accountService.credentials(accountId);
         List<String> errors = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
+        validateAccount(account, errors);
         if (provider == null) {
             errors.add("provider_not_found");
         } else {
@@ -48,6 +49,12 @@ public class AccountValidationService {
         result.put("errors", errors);
         result.put("warnings", warnings);
         return result;
+    }
+
+    private void validateAccount(AccountEntity account, List<String> errors) {
+        if (isBlank(account.getName())) {
+            errors.add("account_name_missing");
+        }
     }
 
     private void validateProvider(ProviderEntity provider, List<String> errors, List<String> warnings) {

@@ -108,7 +108,7 @@ export function ProxySettings() {
                 </p>
               )}
               <div className="rounded-md bg-muted/40 px-4 py-3 text-sm space-y-1">
-                <p><span className="text-muted-foreground">代理地址：</span><span className="font-mono">{localStorage.getItem('chat2api.baseUrl') || 'http://localhost:8080'}</span></p>
+                <p><span className="text-muted-foreground">代理地址：</span><span className="font-mono">{window.location.origin}</span></p>
                 <p><span className="text-muted-foreground">API 端点：</span><span className="font-mono">/v1/chat/completions</span></p>
               </div>
             </CardContent>

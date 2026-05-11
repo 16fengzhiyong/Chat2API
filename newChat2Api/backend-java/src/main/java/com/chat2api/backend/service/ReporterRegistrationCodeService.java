@@ -70,10 +70,23 @@ public class ReporterRegistrationCodeService {
 
     @Transactional(readOnly = true)
     public boolean verify(String code) {
+        return verifyWithReason(code).valid();
+    }
+
+    @Transactional(readOnly = true)
+    public VerificationResult verifyWithReason(String code) {
         if (code == null || code.isBlank()) {
-            return false;
+            return new VerificationResult(false, "Reporter registration code is required");
         }
-        return repository.findByEnabledTrue().stream().anyMatch(entity -> passwordEncoder.matches(code, entity.getCodeHash()));
+        List<ReporterRegistrationCodeEntity> enabledCodes = repository.findByEnabledTrue();
+        if (enabledCodes.isEmpty()) {
+            return new VerificationResult(false, "No enabled reporter registration code exists. Please create one in admin console first");
+        }
+        String normalizedCode = code.trim();
+        boolean valid = enabledCodes.stream().anyMatch(entity -> passwordEncoder.matches(normalizedCode, entity.getCodeHash()));
+        return valid
+                ? new VerificationResult(true, null)
+                : new VerificationResult(false, "Invalid reporter registration code. Please copy an enabled code from admin console");
     }
 
     public String decryptCode(ReporterRegistrationCodeEntity entity) {
@@ -109,5 +122,8 @@ public class ReporterRegistrationCodeService {
     }
 
     public record CreatedRegistrationCode(ReporterRegistrationCodeEntity entity, String code) {
+    }
+
+    public record VerificationResult(boolean valid, String message) {
     }
 }

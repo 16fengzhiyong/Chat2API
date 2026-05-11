@@ -26,10 +26,15 @@ function createBackendClient(configStore) {
   }
 
   function register(payload, version) {
-    configStore.save({ backendUrl: payload.backendUrl })
+    const current = configStore.get()
+    const registrationCode = String(payload.registrationCode || current.registrationCode || '').trim()
+    if (!registrationCode) {
+      throw new Error('请先在管理端创建并复制启用的上报注册口令，然后填写到注册口令')
+    }
+    configStore.save({ backendUrl: payload.backendUrl, registrationCode })
     return request('/api/reporter/register', {
       method: 'POST',
-      body: JSON.stringify({ name: payload.name || 'Desktop Reporter', version, registrationCode: payload.registrationCode || '' }),
+      body: JSON.stringify({ name: payload.name || 'Desktop Reporter', version, registrationCode }),
     }).then((data) => configStore.save({ clientId: data.clientId, secret: data.secret }))
   }
 
@@ -61,10 +66,22 @@ function parsePayload(text) {
 }
 
 function errorMessage(payload, text, status) {
-  if (payload && typeof payload === 'object') {
-    return payload.error?.message || payload.message || JSON.stringify(payload)
+  const message = payload && typeof payload === 'object'
+    ? payload.error?.message || payload.message || JSON.stringify(payload)
+    : text || `Request failed with status ${status}`
+  const translations = {
+    'Reporter registration code is required': '请填写上报注册口令',
+    'No enabled reporter registration code exists. Please create one in admin console first': '后端没有启用的上报注册口令，请先在管理端创建并启用一个口令',
+    'Invalid reporter registration code. Please copy an enabled code from admin console': '上报注册口令无效，请从管理端复制当前启用的口令后重新填写',
+    'Invalid reporter registration code': '上报注册口令无效，请从管理端复制当前启用的口令后重新填写',
   }
-  return text || `Request failed with status ${status}`
+  if (translations[message]) {
+    return translations[message]
+  }
+  if (payload && typeof payload === 'object') {
+    return message
+  }
+  return message
 }
 
 module.exports = { createBackendClient }
