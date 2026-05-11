@@ -1,7 +1,9 @@
 package com.chat2api.backend.web;
 
+import com.chat2api.backend.domain.AdminUserEntity;
 import com.chat2api.backend.security.JwtService;
 import com.chat2api.backend.security.SecurityProperties;
+import com.chat2api.backend.service.AdminUserService;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,12 +26,14 @@ public class AuthController {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final SecurityProperties securityProperties;
+    private final AdminUserService adminUserService;
 
-    public AuthController(UserDetailsService userDetailsService, PasswordEncoder passwordEncoder, JwtService jwtService, SecurityProperties securityProperties) {
+    public AuthController(UserDetailsService userDetailsService, PasswordEncoder passwordEncoder, JwtService jwtService, SecurityProperties securityProperties, AdminUserService adminUserService) {
         this.userDetailsService = userDetailsService;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.securityProperties = securityProperties;
+        this.adminUserService = adminUserService;
     }
 
     @PostMapping("/login")
@@ -41,12 +45,13 @@ public class AuthController {
             if (!passwordEncoder.matches(password, user.getPassword())) {
                 throw new ResponseStatusException(UNAUTHORIZED, "Invalid username or password");
             }
+            AdminUserEntity adminUser = adminUserService.requireEnabled(user.getUsername());
             String token = jwtService.createToken(user.getUsername(), List.of("ADMIN"));
             return ApiResponse.ok(Map.of(
                     "token", token,
                     "tokenType", "Bearer",
                     "expiresAt", Instant.now().plus(securityProperties.jwtTtl()).toString(),
-                    "user", Map.of("username", user.getUsername(), "roles", List.of("ADMIN"))
+                    "user", Map.of("username", user.getUsername(), "roles", List.of("ADMIN"), "mustChangePassword", adminUser.isMustChangePassword())
             ));
         } catch (ResponseStatusException error) {
             throw error;
@@ -57,7 +62,18 @@ public class AuthController {
 
     @GetMapping("/me")
     public ApiResponse<Map<String, Object>> me(org.springframework.security.core.Authentication authentication) {
-        return ApiResponse.ok(Map.of("username", authentication.getName(), "roles", authentication.getAuthorities().stream().map(Object::toString).toList()));
+        AdminUserEntity adminUser = adminUserService.requireEnabled(authentication.getName());
+        return ApiResponse.ok(Map.of("username", authentication.getName(), "roles", authentication.getAuthorities().stream().map(Object::toString).toList(), "mustChangePassword", adminUser.isMustChangePassword()));
+    }
+
+    @PostMapping("/change-password")
+    public ApiResponse<Map<String, Object>> changePassword(org.springframework.security.core.Authentication authentication, @RequestBody Map<String, Object> request) {
+        adminUserService.changePassword(
+                authentication.getName(),
+                String.valueOf(request.getOrDefault("currentPassword", "")),
+                String.valueOf(request.getOrDefault("newPassword", ""))
+        );
+        return ApiResponse.ok(Map.of("changed", true));
     }
 
     @PostMapping("/logout")

@@ -4,9 +4,9 @@ import com.chat2api.backend.domain.AccountEntity;
 import com.chat2api.backend.domain.ReporterClientEntity;
 import com.chat2api.backend.repository.ProviderRepository;
 import com.chat2api.backend.repository.ReporterClientRepository;
-import com.chat2api.backend.security.SecurityProperties;
 import com.chat2api.backend.service.AccountService;
 import com.chat2api.backend.service.IdService;
+import com.chat2api.backend.service.ReporterRegistrationCodeService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -25,20 +25,20 @@ public class ReporterController {
     private final ProviderRepository providerRepository;
     private final AccountService accountService;
     private final IdService idService;
-    private final SecurityProperties securityProperties;
+    private final ReporterRegistrationCodeService registrationCodeService;
 
-    public ReporterController(ReporterClientRepository reporterClientRepository, ProviderRepository providerRepository, AccountService accountService, IdService idService, SecurityProperties securityProperties) {
+    public ReporterController(ReporterClientRepository reporterClientRepository, ProviderRepository providerRepository, AccountService accountService, IdService idService, ReporterRegistrationCodeService registrationCodeService) {
         this.reporterClientRepository = reporterClientRepository;
         this.providerRepository = providerRepository;
         this.accountService = accountService;
         this.idService = idService;
-        this.securityProperties = securityProperties;
+        this.registrationCodeService = registrationCodeService;
     }
 
     @PostMapping("/register")
     public ApiResponse<Map<String, Object>> register(@RequestBody Map<String, Object> request) {
         String registrationCode = String.valueOf(request.getOrDefault("registrationCode", ""));
-        if (!securityProperties.reporterRegistrationCode().equals(registrationCode)) {
+        if (!registrationCodeService.verify(registrationCode)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid reporter registration code");
         }
         ReporterClientEntity client = new ReporterClientEntity();

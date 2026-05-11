@@ -4,6 +4,12 @@ export interface ApiResponse<T> {
   error?: { code: string; message: string }
 }
 
+export interface AuthUser {
+  username: string
+  roles?: string[]
+  mustChangePassword: boolean
+}
+
 export interface Provider {
   id: string
   name: string
@@ -43,6 +49,19 @@ export interface ApiKey {
   allowedModels?: string[]
   createdAt: string
   lastUsedAt?: string
+}
+
+export interface ReporterRegistrationCode {
+  id: string
+  name: string
+  description?: string
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreatedReporterRegistrationCode extends ReporterRegistrationCode {
+  code: string
 }
 
 export interface RequestLog {

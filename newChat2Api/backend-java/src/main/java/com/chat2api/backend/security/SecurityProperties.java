@@ -11,7 +11,6 @@ import java.util.List;
 public class SecurityProperties {
     private final String jwtSecret;
     private final Duration jwtTtl;
-    private final String reporterRegistrationCode;
     private final List<String> corsAllowedOriginPatterns;
     private final long maxRequestBodyBytes;
     private final Duration rateLimitWindow;
@@ -21,7 +20,6 @@ public class SecurityProperties {
     public SecurityProperties(
             @Value("${chat2api.security.jwt-secret}") String jwtSecret,
             @Value("${chat2api.security.jwt-ttl-seconds}") long jwtTtlSeconds,
-            @Value("${chat2api.security.reporter-registration-code}") String reporterRegistrationCode,
             @Value("${chat2api.security.cors-allowed-origin-patterns}") String corsAllowedOriginPatterns,
             @Value("${chat2api.security.max-request-body-bytes}") long maxRequestBodyBytes,
             @Value("${chat2api.security.rate-limit-window-seconds}") long rateLimitWindowSeconds,
@@ -30,7 +28,6 @@ public class SecurityProperties {
     ) {
         this.jwtSecret = jwtSecret;
         this.jwtTtl = Duration.ofSeconds(jwtTtlSeconds);
-        this.reporterRegistrationCode = reporterRegistrationCode;
         this.corsAllowedOriginPatterns = Arrays.stream(corsAllowedOriginPatterns.split(","))
                 .map(String::trim)
                 .filter(value -> !value.isBlank())
@@ -47,10 +44,6 @@ public class SecurityProperties {
 
     public Duration jwtTtl() {
         return jwtTtl;
-    }
-
-    public String reporterRegistrationCode() {
-        return reporterRegistrationCode;
     }
 
     public List<String> corsAllowedOriginPatterns() {

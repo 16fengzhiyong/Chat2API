@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Server, Settings2, FileText, Key, Cpu, MessageSquare, PanelLeftClose, PanelLeftOpen, LogOut } from 'lucide-react'
+import { LayoutDashboard, Server, Settings2, FileText, Key, Cpu, MessageSquare, PanelLeftClose, PanelLeftOpen, LogOut, ShieldCheck, UserCog } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { api, clearSession, getConfig } from '@/api'
 
@@ -11,6 +11,8 @@ const navItems = [
   { title: '模型管理', href: '/models', icon: Cpu },
   { title: '会话管理', href: '/session', icon: MessageSquare },
   { title: 'API密钥', href: '/api-keys', icon: Key },
+  { title: '上报口令', href: '/reporter-codes', icon: ShieldCheck },
+  { title: '安全设置', href: '/security', icon: UserCog },
   { title: '请求日志', href: '/logs', icon: FileText },
 ]
 

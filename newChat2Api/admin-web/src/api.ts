@@ -1,15 +1,15 @@
-import type { ApiKey, ApiResponse, Account, Provider, RequestLog, SessionRecord, SystemPrompt } from './types'
+import type { ApiKey, ApiResponse, Account, Provider, RequestLog, SessionRecord, SystemPrompt, AuthUser, ReporterRegistrationCode, CreatedReporterRegistrationCode } from './types'
 
 export interface AdminConfig {
-  baseUrl: string
   token: string
   username?: string
+  mustChangePassword?: boolean
 }
 
 const defaultConfig: AdminConfig = {
-  baseUrl: localStorage.getItem('chat2api.baseUrl') || 'http://localhost:8080',
   token: localStorage.getItem('chat2api.token') || '',
   username: localStorage.getItem('chat2api.username') || '',
+  mustChangePassword: localStorage.getItem('chat2api.mustChangePassword') === 'true',
 }
 
 export function getConfig(): AdminConfig {
@@ -17,10 +17,9 @@ export function getConfig(): AdminConfig {
 }
 
 export function saveConfig(config: AdminConfig) {
-  defaultConfig.baseUrl = config.baseUrl
   defaultConfig.token = config.token
   defaultConfig.username = config.username
-  localStorage.setItem('chat2api.baseUrl', config.baseUrl)
+  defaultConfig.mustChangePassword = Boolean(config.mustChangePassword)
   if (config.token) {
     localStorage.setItem('chat2api.token', config.token)
   } else {
@@ -31,37 +30,46 @@ export function saveConfig(config: AdminConfig) {
   } else {
     localStorage.removeItem('chat2api.username')
   }
+  if (config.mustChangePassword) {
+    localStorage.setItem('chat2api.mustChangePassword', 'true')
+  } else {
+    localStorage.removeItem('chat2api.mustChangePassword')
+  }
 }
 
 export function clearSession() {
   defaultConfig.token = ''
   defaultConfig.username = ''
+  defaultConfig.mustChangePassword = false
   localStorage.removeItem('chat2api.token')
   localStorage.removeItem('chat2api.username')
+  localStorage.removeItem('chat2api.mustChangePassword')
 }
 
 export function isAuthenticated() {
   return Boolean(defaultConfig.token)
 }
 
-export async function login(baseUrl: string, username: string, password: string) {
-  defaultConfig.baseUrl = normalizeBaseUrl(baseUrl)
-  localStorage.setItem('chat2api.baseUrl', defaultConfig.baseUrl)
-  const response = await fetch(`${defaultConfig.baseUrl}/api/auth/login`, {
+export function mustChangePassword() {
+  return Boolean(defaultConfig.token && defaultConfig.mustChangePassword)
+}
+
+export async function login(username: string, password: string) {
+  const response = await fetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
   })
-  const payload = (await response.json()) as ApiResponse<{ token: string; user?: { username?: string } }>
+  const payload = (await response.json()) as ApiResponse<{ token: string; user?: AuthUser }>
   if (!response.ok || !payload.success || !payload.data?.token) {
     throw new Error(payload.error?.message || 'Login failed')
   }
-  saveConfig({ baseUrl: defaultConfig.baseUrl, token: payload.data.token, username: payload.data.user?.username || username })
+  saveConfig({ token: payload.data.token, username: payload.data.user?.username || username, mustChangePassword: Boolean(payload.data.user?.mustChangePassword) })
   return payload.data
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${defaultConfig.baseUrl}${path}`, {
+  const response = await fetch(path, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -87,14 +95,19 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return payload as T
 }
 
-function normalizeBaseUrl(value: string) {
-  const next = value.trim() || 'http://localhost:8080'
-  return next.endsWith('/') ? next.slice(0, -1) : next
+export async function refreshCurrentUser() {
+  const user = await request<AuthUser>('/api/auth/me')
+  saveConfig({ ...defaultConfig, username: user.username, mustChangePassword: user.mustChangePassword })
+  return user
 }
 
 export const api = {
-  health: () => fetch(`${defaultConfig.baseUrl}/health`).then((res) => res.json()),
-  me: () => request<Record<string, unknown>>('/api/auth/me'),
+  health: () => fetch('/health').then((res) => res.json()),
+  me: () => refreshCurrentUser(),
+  changePassword: (currentPassword: string, newPassword: string) => request<Record<string, unknown>>('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }).then((result) => {
+    saveConfig({ ...defaultConfig, mustChangePassword: false })
+    return result
+  }),
   logout: () => request<Record<string, unknown>>('/api/auth/logout', { method: 'POST' }).finally(clearSession),
   providers: () => request<Provider[]>('/api/providers'),
   updateProvider: (id: string, provider: Record<string, unknown>) => request<Provider>(`/api/providers/${id}`, { method: 'PUT', body: JSON.stringify(provider) }),
@@ -111,6 +124,10 @@ export const api = {
   createApiKey: (name: string, description?: string, allowedModels?: string[]) => request<ApiKey>('/api/api-keys', { method: 'POST', body: JSON.stringify({ name, description, allowedModels }) }),
   updateApiKey: (id: string, data: Record<string, unknown>) => request<ApiKey>(`/api/api-keys/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteApiKey: (id: string) => request<Record<string, unknown>>(`/api/api-keys/${id}`, { method: 'DELETE' }),
+  reporterRegistrationCodes: () => request<ReporterRegistrationCode[]>('/api/reporter-registration-codes'),
+  createReporterRegistrationCode: (data: Record<string, unknown>) => request<CreatedReporterRegistrationCode>('/api/reporter-registration-codes', { method: 'POST', body: JSON.stringify(data) }),
+  updateReporterRegistrationCode: (id: string, data: Record<string, unknown>) => request<ReporterRegistrationCode>(`/api/reporter-registration-codes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteReporterRegistrationCode: (id: string) => request<Record<string, unknown>>(`/api/reporter-registration-codes/${id}`, { method: 'DELETE' }),
   modelMappings: () => request<Record<string, unknown>[]>('/api/model-mappings'),
   saveModelMapping: (mapping: Record<string, unknown>) => request('/api/model-mappings', { method: 'POST', body: JSON.stringify(mapping) }),
   deleteModelMapping: (model: string) => request<Record<string, unknown>>(`/api/model-mappings/${encodeURIComponent(model)}`, { method: 'DELETE' }),

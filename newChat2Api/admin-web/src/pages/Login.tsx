@@ -5,13 +5,11 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { getConfig, login } from '@/api'
+import { login } from '@/api'
 
 export function Login() {
   const navigate = useNavigate()
-  const config = getConfig()
-  const [baseUrl, setBaseUrl] = useState(config.baseUrl)
-  const [username, setUsername] = useState(config.username || 'admin')
+  const [username, setUsername] = useState(localStorage.getItem('chat2api.username') || 'admin')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -21,8 +19,8 @@ export function Login() {
     try {
       setLoading(true)
       setError('')
-      await login(baseUrl, username, password)
-      navigate('/', { replace: true })
+      const result = await login(username, password)
+      navigate(result.user?.mustChangePassword ? '/change-password' : '/', { replace: true })
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '登录失败')
     } finally {
@@ -44,10 +42,6 @@ export function Login() {
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={submit}>
-            <div className="space-y-2">
-              <Label htmlFor="baseUrl">后端地址</Label>
-              <Input id="baseUrl" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="http://localhost:8080" />
-            </div>
             <div className="space-y-2">
               <Label htmlFor="username">用户名</Label>
               <Input id="username" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />

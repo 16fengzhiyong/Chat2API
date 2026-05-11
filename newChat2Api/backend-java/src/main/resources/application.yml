@@ -1,11 +1,12 @@
 server:
   port: ${CHAT2API_SERVER_PORT:8080}
+  forward-headers-strategy: framework
 
 spring:
   application:
     name: chat2api-backend
   datasource:
-    url: ${CHAT2API_DB_URL:jdbc:mysql://127.0.0.1:3306/chat2api?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    url: ${CHAT2API_DB_URL:jdbc:mysql://127.0.0.1:3306/chat2api?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true}
     username: ${CHAT2API_DB_USERNAME:root}
     password: ${CHAT2API_DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -31,12 +32,11 @@ chat2api:
   encryption-key: ${CHAT2API_ENCRYPTION_KEY:dev-only-change-this-secret-key}
   admin:
     username: ${CHAT2API_ADMIN_USERNAME:admin}
-    password: ${CHAT2API_ADMIN_PASSWORD:admin123456}
+    default-password: ${CHAT2API_ADMIN_DEFAULT_PASSWORD:admin123456}
   security:
     jwt-secret: ${CHAT2API_JWT_SECRET:dev-only-change-this-jwt-secret}
     jwt-ttl-seconds: ${CHAT2API_JWT_TTL_SECONDS:86400}
-    reporter-registration-code: ${CHAT2API_REPORTER_REGISTRATION_CODE:dev-reporter-registration-code}
-    cors-allowed-origin-patterns: ${CHAT2API_CORS_ALLOWED_ORIGINS:http://localhost:*,http://127.0.0.1:*}
+    cors-allowed-origin-patterns: ${CHAT2API_CORS_ALLOWED_ORIGINS:*}
     max-request-body-bytes: ${CHAT2API_MAX_REQUEST_BODY_BYTES:1048576}
     rate-limit-window-seconds: ${CHAT2API_RATE_LIMIT_WINDOW_SECONDS:60}
     auth-rate-limit: ${CHAT2API_AUTH_RATE_LIMIT:10}
