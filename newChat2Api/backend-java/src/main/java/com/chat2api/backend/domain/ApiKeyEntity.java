@@ -1,10 +1,15 @@
 package com.chat2api.backend.domain;
 
+import com.chat2api.backend.persistence.StringListConverter;
+import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "api_keys")
@@ -16,6 +21,9 @@ public class ApiKeyEntity {
     private boolean enabled = true;
     private long usageCount;
     private String description;
+    @Column(columnDefinition = "json")
+    @Convert(converter = StringListConverter.class)
+    private List<String> allowedModels = new ArrayList<>();
     private Instant createdAt = Instant.now();
     private Instant lastUsedAt;
 
@@ -31,6 +39,8 @@ public class ApiKeyEntity {
     public void setUsageCount(long usageCount) { this.usageCount = usageCount; }
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
+    public List<String> getAllowedModels() { return allowedModels; }
+    public void setAllowedModels(List<String> allowedModels) { this.allowedModels = allowedModels; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getLastUsedAt() { return lastUsedAt; }

@@ -30,7 +30,7 @@ public class ApiKeyController {
 
     @PostMapping
     public ApiResponse<ApiKeyEntity> create(@RequestBody Map<String, Object> request) {
-        return ApiResponse.ok(apiKeyService.create(String.valueOf(request.getOrDefault("name", "API Key")), request.get("description") == null ? null : String.valueOf(request.get("description"))));
+        return ApiResponse.ok(apiKeyService.create(String.valueOf(request.getOrDefault("name", "API Key")), request.get("description") == null ? null : String.valueOf(request.get("description")), request.get("allowedModels")));
     }
 
     @PutMapping("/{id}")

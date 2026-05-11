@@ -40,6 +40,7 @@ export interface ApiKey {
   enabled: boolean
   usageCount: number
   description?: string
+  allowedModels?: string[]
   createdAt: string
   lastUsedAt?: string
 }

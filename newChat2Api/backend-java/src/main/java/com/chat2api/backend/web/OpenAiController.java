@@ -1,5 +1,6 @@
 package com.chat2api.backend.web;
 
+import com.chat2api.backend.domain.ApiKeyEntity;
 import com.chat2api.backend.proxy.ForwardResult;
 import com.chat2api.backend.proxy.ProxyService;
 import com.chat2api.backend.repository.AppConfigRepository;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -51,14 +53,23 @@ public class OpenAiController {
 
     @PostMapping("/v1/chat/completions")
     public ResponseEntity<String> chatCompletions(@RequestBody Map<String, Object> request, HttpServletRequest servletRequest) {
-        if (!authorized(servletRequest)) {
+        return handleChatCompletion(request, servletRequest);
+    }
+
+    private ResponseEntity<String> handleChatCompletion(Map<String, Object> request, HttpServletRequest servletRequest) {
+        AuthenticationResult authentication = authenticate(servletRequest);
+        if (!authentication.allowed()) {
             return ResponseEntity.status(401).contentType(MediaType.APPLICATION_JSON).body(openAiError("Invalid API key"));
+        }
+        String model = String.valueOf(request.getOrDefault("model", ""));
+        if (authentication.apiKey() != null && !apiKeyService.isModelAllowed(authentication.apiKey(), model)) {
+            return ResponseEntity.status(403).contentType(MediaType.APPLICATION_JSON).body(openAiError("API key is not allowed to use model: " + model));
         }
         ForwardResult result = proxyService.chatCompletion(request);
         if (Boolean.TRUE.equals(request.get("stream"))) {
             return ResponseEntity.status(result.statusCode())
                     .header(HttpHeaders.CONTENT_TYPE, "text/event-stream; charset=utf-8")
-                    .body(result.success() ? openAiResponseService.toStream(result.body(), String.valueOf(request.getOrDefault("model", ""))) : "data: " + openAiError(result.errorMessage()) + "\n\ndata: [DONE]\n\n");
+                    .body(result.success() ? openAiResponseService.toStream(result.body(), model) : "data: " + openAiError(result.errorMessage()) + "\n\ndata: [DONE]\n\n");
         }
         return ResponseEntity.status(result.statusCode())
                 .header(HttpHeaders.CONTENT_TYPE, result.contentType() == null ? MediaType.APPLICATION_JSON_VALUE : result.contentType())
@@ -67,11 +78,9 @@ public class OpenAiController {
 
     @PostMapping("/v1/completions")
     public ResponseEntity<String> completions(@RequestBody Map<String, Object> request, HttpServletRequest servletRequest) {
-        if (!authorized(servletRequest)) {
-            return ResponseEntity.status(401).contentType(MediaType.APPLICATION_JSON).body(openAiError("Invalid API key"));
-        }
-        request.putIfAbsent("messages", List.of(Map.of("role", "user", "content", String.valueOf(request.getOrDefault("prompt", "")))));
-        return chatCompletions(request, servletRequest);
+        Map<String, Object> chatRequest = new LinkedHashMap<>(request);
+        chatRequest.putIfAbsent("messages", List.of(Map.of("role", "user", "content", String.valueOf(request.getOrDefault("prompt", "")))));
+        return handleChatCompletion(chatRequest, servletRequest);
     }
 
     @GetMapping("/v1/models")
@@ -97,12 +106,12 @@ public class OpenAiController {
         return "{\"error\":{\"message\":" + jsonString(message == null ? "Request failed" : message) + ",\"type\":\"chat2api_error\"}}";
     }
 
-    private boolean authorized(HttpServletRequest request) {
+    private AuthenticationResult authenticate(HttpServletRequest request) {
         boolean apiKeyEnabled = appConfigRepository.findById("apiKeyEnabled")
                 .map(e -> "true".equalsIgnoreCase(e.getConfigValue()))
                 .orElse(false);
         if (!apiKeyEnabled) {
-            return true;
+            return new AuthenticationResult(true, null);
         }
         String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
         String apiKey = request.getHeader("X-API-Key");
@@ -111,10 +120,18 @@ public class OpenAiController {
         if (token == null && authorization != null && authorization.toLowerCase().startsWith("bearer ")) {
             token = authorization.substring(7);
         }
-        return token != null && apiKeyService.verify(token).isPresent();
+        if (token == null) {
+            return new AuthenticationResult(false, null);
+        }
+        return apiKeyService.verify(token)
+                .map(key -> new AuthenticationResult(true, key))
+                .orElseGet(() -> new AuthenticationResult(false, null));
     }
 
     private String jsonString(String text) {
         return "\"" + text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\"";
+    }
+
+    private record AuthenticationResult(boolean allowed, ApiKeyEntity apiKey) {
     }
 }
