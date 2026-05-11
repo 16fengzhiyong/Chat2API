@@ -232,4 +232,67 @@ public class DeepSeekStreamParser {
     }
 
     private record ParsedStream(String content, String reasoning, String messageId, int tokenUsage, List<Map<String, Object>> searchResults) {}
+
+    public record LineDelta(String contentDelta, String reasoningDelta) {
+        public static final LineDelta EMPTY = new LineDelta("", "");
+        public boolean isEmpty() { return contentDelta.isBlank() && reasoningDelta.isBlank(); }
+    }
+
+    public static final class StreamingContext {
+        final StringBuilder content = new StringBuilder();
+        final StringBuilder reasoning = new StringBuilder();
+        String currentPath = "";
+        String messageId = "";
+        final boolean thinkingModel;
+
+        public StreamingContext(boolean thinkingModel) {
+            this.thinkingModel = thinkingModel;
+        }
+
+        public String messageId() { return messageId; }
+        public String accumulatedContent() { return content.toString(); }
+        public String accumulatedReasoning() { return reasoning.toString(); }
+    }
+
+    public LineDelta processLine(String line, StreamingContext ctx) {
+        if (!line.startsWith("data:")) return LineDelta.EMPTY;
+        String data = line.substring(5).trim();
+        if (data.isBlank() || "[DONE]".equals(data)) return LineDelta.EMPTY;
+        try {
+            Map<String, Object> event = objectMapper.readValue(data, new TypeReference<>() {});
+            if (ctx.messageId.isBlank() && event.get("response_message_id") != null) {
+                ctx.messageId = String.valueOf(event.get("response_message_id"));
+            }
+            int prevContent = ctx.content.length();
+            int prevReasoning = ctx.reasoning.length();
+            Object path = event.get("p");
+            Object value = event.get("v");
+            if (value instanceof Map<?, ?> valueMap && valueMap.get("response") instanceof Map<?, ?> response) {
+                Object thinkingEnabled = response.get("thinking_enabled");
+                if (thinkingEnabled != null) {
+                    ctx.currentPath = Boolean.TRUE.equals(thinkingEnabled) ? "thinking" : "content";
+                }
+                appendFragments(response.get("fragments"), ctx.content, ctx.reasoning);
+            } else if ("response/fragments".equals(path)) {
+                ctx.currentPath = appendFragments(value, ctx.content, ctx.reasoning);
+            } else if ("response".equals(path) && value instanceof List<?> operations) {
+                for (Object operation : operations) {
+                    if (operation instanceof Map<?, ?> map &&
+                            map.get("v") instanceof Map<?, ?> nested &&
+                            Boolean.TRUE.equals(nested.get("thinking_enabled"))) {
+                        ctx.currentPath = "thinking";
+                    }
+                }
+            }
+            if (ctx.currentPath.isBlank() && ctx.thinkingModel) {
+                ctx.currentPath = "thinking";
+            }
+            appendValue(value, ctx.currentPath, ctx.content, ctx.reasoning);
+            String contentDelta = ctx.content.length() > prevContent ? ctx.content.substring(prevContent) : "";
+            String reasoningDelta = ctx.reasoning.length() > prevReasoning ? ctx.reasoning.substring(prevReasoning) : "";
+            return new LineDelta(contentDelta, reasoningDelta);
+        } catch (Exception ignored) {
+            return LineDelta.EMPTY;
+        }
+    }
 }

@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -52,11 +53,11 @@ public class OpenAiController {
     }
 
     @PostMapping("/v1/chat/completions")
-    public ResponseEntity<String> chatCompletions(@RequestBody Map<String, Object> request, HttpServletRequest servletRequest) {
+    public ResponseEntity<?> chatCompletions(@RequestBody Map<String, Object> request, HttpServletRequest servletRequest) {
         return handleChatCompletion(request, servletRequest);
     }
 
-    private ResponseEntity<String> handleChatCompletion(Map<String, Object> request, HttpServletRequest servletRequest) {
+    private ResponseEntity<?> handleChatCompletion(Map<String, Object> request, HttpServletRequest servletRequest) {
         AuthenticationResult authentication = authenticate(servletRequest);
         if (!authentication.allowed()) {
             return ResponseEntity.status(401).contentType(MediaType.APPLICATION_JSON).body(openAiError("Invalid API key"));
@@ -65,19 +66,22 @@ public class OpenAiController {
         if (authentication.apiKey() != null && !apiKeyService.isModelAllowed(authentication.apiKey(), model)) {
             return ResponseEntity.status(403).contentType(MediaType.APPLICATION_JSON).body(openAiError("API key is not allowed to use model: " + model));
         }
-        ForwardResult result = proxyService.chatCompletion(request);
         if (Boolean.TRUE.equals(request.get("stream"))) {
-            return ResponseEntity.status(result.statusCode())
+            StreamingResponseBody streamBody = outputStream -> proxyService.chatCompletionStream(request, outputStream);
+            return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_TYPE, "text/event-stream; charset=utf-8")
-                    .body(result.success() ? openAiResponseService.toStream(result.body(), model) : "data: " + openAiError(result.errorMessage()) + "\n\ndata: [DONE]\n\n");
+                    .header("Cache-Control", "no-cache")
+                    .header("X-Accel-Buffering", "no")
+                    .body(streamBody);
         }
+        ForwardResult result = proxyService.chatCompletion(request);
         return ResponseEntity.status(result.statusCode())
                 .header(HttpHeaders.CONTENT_TYPE, result.contentType() == null ? MediaType.APPLICATION_JSON_VALUE : result.contentType())
                 .body(result.success() ? result.body() : openAiError(result.errorMessage()));
     }
 
     @PostMapping("/v1/completions")
-    public ResponseEntity<String> completions(@RequestBody Map<String, Object> request, HttpServletRequest servletRequest) {
+    public ResponseEntity<?> completions(@RequestBody Map<String, Object> request, HttpServletRequest servletRequest) {
         Map<String, Object> chatRequest = new LinkedHashMap<>(request);
         chatRequest.putIfAbsent("messages", List.of(Map.of("role", "user", "content", String.valueOf(request.getOrDefault("prompt", "")))));
         return handleChatCompletion(chatRequest, servletRequest);

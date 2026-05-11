@@ -16,6 +16,9 @@ import org.springframework.web.client.RestTemplate;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -26,6 +29,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.regex.Pattern;
 
 @Service
@@ -474,6 +478,130 @@ public class ZaiProviderForwarder implements ProviderForwarder {
         } catch (Exception error) {
             return "{}";
         }
+    }
+
+    @Override
+    public void forwardStreaming(ProviderEntity provider, AccountEntity account,
+                                  Map<String, String> credentials, Map<String, Object> request,
+                                  String actualModel, SseStreamWriter writer, Consumer<String> onComplete) throws Exception {
+        String token = first(credentials, "token", "accessToken", "access_token", "jwt");
+        if (token == null || token.isBlank()) {
+            writer.writeErrorAndDone("Z.ai token is not configured");
+            return;
+        }
+        String mappedModel = mapModel(actualModel);
+        List<Map<String, Object>> processedMessages = mergeSystemIntoFirstUser(messages(request));
+        String signaturePrompt = lastUserContent(processedMessages);
+        ChatInit chat = createChat(mappedModel, signaturePrompt, token);
+        String requestId = uuid();
+        long timestamp = Instant.now().toEpochMilli();
+        String userId = userIdFromToken(token);
+        String signature = signature(signaturePrompt, requestId, timestamp, userId);
+        Map<String, Object> body = chatBody(request, mappedModel, processedMessages, signaturePrompt, chat.chatId(), chat.messageId(), requestId);
+        String url = BASE_URL + "/api/v2/chat/completions?" + query(timestamp, requestId, userId, token, chat.chatId());
+        HttpHeaders headers = completionHeaders(token, signature, chat.chatId());
+        byte[] bodyBytes = toJson(body).getBytes(StandardCharsets.UTF_8);
+
+        long created = Instant.now().getEpochSecond();
+        StringBuilder content = new StringBuilder();
+        StringBuilder reasoning = new StringBuilder();
+        boolean[] roleEmitted = {false};
+        boolean[] reasoningHeaderEmitted = {false};
+
+        try {
+            restTemplate.execute(URI.create(url), HttpMethod.POST,
+                    req -> {
+                        req.getHeaders().putAll(headers);
+                        req.getBody().write(bodyBytes);
+                    },
+                    response -> {
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                            try {
+                                writer.writeErrorAndDone("Z.ai request failed: HTTP " + response.getStatusCode().value());
+                            } catch (IOException ignored) {}
+                            return null;
+                        }
+                        try (BufferedReader reader = new BufferedReader(
+                                new InputStreamReader(response.getBody(), StandardCharsets.UTF_8))) {
+                            String line;
+                            while ((line = reader.readLine()) != null) {
+                                if (!line.startsWith("data:")) continue;
+                                String data = line.substring(5).trim();
+                                if (data.isBlank() || "[DONE]".equals(data)) continue;
+                                try {
+                                    Map<String, Object> event = objectMapper.readValue(data, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+                                    if (!"chat:completion".equals(event.get("type"))) continue;
+                                    Object eventData = event.get("data");
+                                    if (!(eventData instanceof Map<?, ?> raw)) continue;
+                                    String phase = raw.get("phase") == null ? "" : String.valueOf(raw.get("phase"));
+                                    String delta = raw.get("delta_content") == null ? "" : clean(String.valueOf(raw.get("delta_content")));
+                                    if (delta.isBlank()) continue;
+                                    if (!roleEmitted[0]) {
+                                        writer.writeEvent(sseChunk(chat.chatId(), actualModel, created, Map.of("role", "assistant"), null));
+                                        roleEmitted[0] = true;
+                                    }
+                                    if ("thinking".equals(phase)) {
+                                        if (!reasoningHeaderEmitted[0]) {
+                                            writer.writeEvent(sseChunk(chat.chatId(), actualModel, created, Map.of("reasoning_content", ""), null));
+                                            reasoningHeaderEmitted[0] = true;
+                                        }
+                                        reasoning.append(delta);
+                                        writer.writeEvent(sseChunk(chat.chatId(), actualModel, created, Map.of("reasoning_content", delta), null));
+                                    } else if ("answer".equals(phase)) {
+                                        content.append(delta);
+                                        writer.writeEvent(sseChunk(chat.chatId(), actualModel, created, Map.of("content", delta), null));
+                                    }
+                                } catch (IOException e) {
+                                    throw e;
+                                } catch (Exception e) {
+                                    throw new IOException(e.getMessage(), e);
+                                }
+                            }
+                        }
+                        return null;
+                    });
+        } catch (HttpStatusCodeException error) {
+            writer.writeErrorAndDone("Z.ai request failed: HTTP " + error.getStatusCode().value());
+            return;
+        }
+
+        writer.writeEvent(sseChunk(chat.chatId(), actualModel, created, Map.of(), "stop"));
+        writer.writeDone();
+        onComplete.accept(buildCompletionJson(actualModel, chat.chatId(), created, content.toString(), reasoning.toString()));
+    }
+
+    private Map<String, Object> sseChunk(String id, String model, long created, Map<String, Object> delta, String finishReason) {
+        Map<String, Object> choice = new LinkedHashMap<>();
+        choice.put("index", 0);
+        choice.put("delta", delta);
+        choice.put("finish_reason", finishReason);
+        Map<String, Object> chunk = new LinkedHashMap<>();
+        chunk.put("id", id);
+        chunk.put("model", model);
+        chunk.put("object", "chat.completion.chunk");
+        chunk.put("choices", List.of(choice));
+        chunk.put("created", created);
+        return chunk;
+    }
+
+    private String buildCompletionJson(String model, String id, long created, String content, String reasoning) {
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("role", "assistant");
+        message.put("content", content);
+        if (!reasoning.isBlank()) {
+            message.put("reasoning_content", reasoning);
+        }
+        Map<String, Object> choice = new LinkedHashMap<>();
+        choice.put("index", 0);
+        choice.put("message", message);
+        choice.put("finish_reason", "stop");
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("id", id);
+        response.put("object", "chat.completion");
+        response.put("created", created);
+        response.put("model", model);
+        response.put("choices", List.of(choice));
+        return toJson(response);
     }
 
     private record ChatInit(String chatId, String messageId) {}
