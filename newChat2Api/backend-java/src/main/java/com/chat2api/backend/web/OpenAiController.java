@@ -7,8 +7,8 @@ import com.chat2api.backend.repository.AppConfigRepository;
 import com.chat2api.backend.repository.ModelMappingRepository;
 import com.chat2api.backend.repository.ProviderRepository;
 import com.chat2api.backend.service.ApiKeyService;
-import com.chat2api.backend.service.OpenAiResponseService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -17,8 +17,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,15 +30,13 @@ public class OpenAiController {
     private final ProviderRepository providerRepository;
     private final ModelMappingRepository modelMappingRepository;
     private final ApiKeyService apiKeyService;
-    private final OpenAiResponseService openAiResponseService;
     private final AppConfigRepository appConfigRepository;
 
-    public OpenAiController(ProxyService proxyService, ProviderRepository providerRepository, ModelMappingRepository modelMappingRepository, ApiKeyService apiKeyService, OpenAiResponseService openAiResponseService, AppConfigRepository appConfigRepository) {
+    public OpenAiController(ProxyService proxyService, ProviderRepository providerRepository, ModelMappingRepository modelMappingRepository, ApiKeyService apiKeyService, AppConfigRepository appConfigRepository) {
         this.proxyService = proxyService;
         this.providerRepository = providerRepository;
         this.modelMappingRepository = modelMappingRepository;
         this.apiKeyService = apiKeyService;
-        this.openAiResponseService = openAiResponseService;
         this.appConfigRepository = appConfigRepository;
     }
 
@@ -53,38 +51,42 @@ public class OpenAiController {
     }
 
     @PostMapping("/v1/chat/completions")
-    public ResponseEntity<?> chatCompletions(@RequestBody Map<String, Object> request, HttpServletRequest servletRequest) {
-        return handleChatCompletion(request, servletRequest);
+    public void chatCompletions(@RequestBody Map<String, Object> request, HttpServletRequest servletRequest, HttpServletResponse response) throws IOException {
+        handleChatCompletion(request, servletRequest, response);
     }
 
-    private ResponseEntity<?> handleChatCompletion(Map<String, Object> request, HttpServletRequest servletRequest) {
+    private void handleChatCompletion(Map<String, Object> request, HttpServletRequest servletRequest, HttpServletResponse response) throws IOException {
         AuthenticationResult authentication = authenticate(servletRequest);
         if (!authentication.allowed()) {
-            return ResponseEntity.status(401).contentType(MediaType.APPLICATION_JSON).body(openAiError("Invalid API key"));
+            writeResponse(response, 401, MediaType.APPLICATION_JSON_VALUE, openAiError("Invalid API key"));
+            return;
         }
         String model = String.valueOf(request.getOrDefault("model", ""));
         if (authentication.apiKey() != null && !apiKeyService.isModelAllowed(authentication.apiKey(), model)) {
-            return ResponseEntity.status(403).contentType(MediaType.APPLICATION_JSON).body(openAiError("API key is not allowed to use model: " + model));
+            writeResponse(response, 403, MediaType.APPLICATION_JSON_VALUE, openAiError("API key is not allowed to use model: " + model));
+            return;
         }
         if (Boolean.TRUE.equals(request.get("stream"))) {
-            StreamingResponseBody streamBody = outputStream -> proxyService.chatCompletionStream(request, outputStream);
-            return ResponseEntity.ok()
-                    .header(HttpHeaders.CONTENT_TYPE, "text/event-stream; charset=utf-8")
-                    .header("Cache-Control", "no-cache")
-                    .header("X-Accel-Buffering", "no")
-                    .body(streamBody);
+            response.setStatus(200);
+            response.setCharacterEncoding("UTF-8");
+            response.setContentType("text/event-stream; charset=utf-8");
+            response.setHeader("Cache-Control", "no-cache");
+            response.setHeader("X-Accel-Buffering", "no");
+            proxyService.chatCompletionStream(request, response.getOutputStream());
+            return;
         }
         ForwardResult result = proxyService.chatCompletion(request);
-        return ResponseEntity.status(result.statusCode())
-                .header(HttpHeaders.CONTENT_TYPE, result.contentType() == null ? MediaType.APPLICATION_JSON_VALUE : result.contentType())
-                .body(result.success() ? result.body() : openAiError(result.errorMessage()));
+        writeResponse(response,
+                result.statusCode(),
+                result.contentType() == null ? MediaType.APPLICATION_JSON_VALUE : result.contentType(),
+                result.success() ? result.body() : openAiError(result.errorMessage()));
     }
 
     @PostMapping("/v1/completions")
-    public ResponseEntity<?> completions(@RequestBody Map<String, Object> request, HttpServletRequest servletRequest) {
+    public void completions(@RequestBody Map<String, Object> request, HttpServletRequest servletRequest, HttpServletResponse response) throws IOException {
         Map<String, Object> chatRequest = new LinkedHashMap<>(request);
         chatRequest.putIfAbsent("messages", List.of(Map.of("role", "user", "content", String.valueOf(request.getOrDefault("prompt", "")))));
-        return handleChatCompletion(chatRequest, servletRequest);
+        handleChatCompletion(chatRequest, servletRequest, response);
     }
 
     @GetMapping("/v1/models")
@@ -124,6 +126,13 @@ public class OpenAiController {
 
     private Map<String, Object> openAiErrorBody(String message) {
         return Map.of("error", Map.of("message", message == null ? "Request failed" : message, "type", "chat2api_error"));
+    }
+
+    private void writeResponse(HttpServletResponse response, int status, String contentType, String body) throws IOException {
+        response.setStatus(status);
+        response.setCharacterEncoding("UTF-8");
+        response.setContentType(contentType);
+        response.getWriter().write(body == null ? "" : body);
     }
 
     private AuthenticationResult authenticate(HttpServletRequest request) {
