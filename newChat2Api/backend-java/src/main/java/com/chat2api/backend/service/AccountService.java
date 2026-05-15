@@ -3,10 +3,14 @@ package com.chat2api.backend.service;
 import com.chat2api.backend.domain.AccountCredentialEntity;
 import com.chat2api.backend.domain.AccountEntity;
 import com.chat2api.backend.domain.AccountStatus;
+import com.chat2api.backend.domain.ProviderEntity;
 import com.chat2api.backend.repository.AccountCredentialRepository;
 import com.chat2api.backend.repository.AccountRepository;
+import com.chat2api.backend.repository.ProviderRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,13 +24,15 @@ public class AccountService {
     private static final TypeReference<Map<String, String>> CREDENTIAL_TYPE = new TypeReference<>() {};
     private final AccountRepository accountRepository;
     private final AccountCredentialRepository credentialRepository;
+    private final ProviderRepository providerRepository;
     private final EncryptionService encryptionService;
     private final IdService idService;
     private final ObjectMapper objectMapper;
 
-    public AccountService(AccountRepository accountRepository, AccountCredentialRepository credentialRepository, EncryptionService encryptionService, IdService idService, ObjectMapper objectMapper) {
+    public AccountService(AccountRepository accountRepository, AccountCredentialRepository credentialRepository, ProviderRepository providerRepository, EncryptionService encryptionService, IdService idService, ObjectMapper objectMapper) {
         this.accountRepository = accountRepository;
         this.credentialRepository = credentialRepository;
+        this.providerRepository = providerRepository;
         this.encryptionService = encryptionService;
         this.idService = idService;
         this.objectMapper = objectMapper;
@@ -38,6 +44,13 @@ public class AccountService {
 
     public List<AccountEntity> listByProvider(String providerId) {
         return accountRepository.findByProviderId(providerId);
+    }
+
+    public Page<AccountEntity> pageByProvider(String providerId, String search, Pageable pageable) {
+        if (search != null && !search.isBlank()) {
+            return accountRepository.searchByProviderId(providerId, search, pageable);
+        }
+        return accountRepository.findByProviderId(providerId, pageable);
     }
 
     public AccountEntity get(String id) {
@@ -52,7 +65,7 @@ public class AccountService {
         account.setName(name);
         account.setEmail(email);
         account.setDailyLimit(dailyLimit);
-        account.setStatus(AccountStatus.ACTIVE);
+        account.setStatus(resolveDefaultStatus(providerId));
         account.setLastUsed(Instant.now());
         AccountEntity saved = accountRepository.save(account);
         saveCredentials(saved.getId(), credentials);
@@ -96,6 +109,17 @@ public class AccountService {
         account.setTodayUsed(account.getTodayUsed() + 1);
         account.setLastUsed(Instant.now());
         accountRepository.save(account);
+    }
+
+    private AccountStatus resolveDefaultStatus(String providerId) {
+        ProviderEntity provider = providerRepository.findById(providerId).orElse(null);
+        if (provider != null && provider.getSettings() != null) {
+            Object ds = provider.getSettings().get("defaultAccountStatus");
+            if ("INACTIVE".equalsIgnoreCase(String.valueOf(ds))) {
+                return AccountStatus.INACTIVE;
+            }
+        }
+        return AccountStatus.ACTIVE;
     }
 
     public boolean available(AccountEntity account) {

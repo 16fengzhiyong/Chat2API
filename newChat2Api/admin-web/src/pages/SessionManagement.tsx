@@ -19,6 +19,7 @@ function useToast() {
 }
 
 interface SessionConfig {
+  enabled?: boolean
   mode?: string
   ttlSeconds?: number
 }
@@ -31,27 +32,36 @@ interface ContextConfig {
   maxTokens?: number
 }
 
+interface ToolCallingConfig {
+  enabled?: boolean
+  mode?: string
+  diagnostics?: boolean
+}
+
 export function SessionManagement() {
   const [sessions, setSessions] = useState<SessionRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [sessionConfig, setSessionConfig] = useState<SessionConfig>({})
   const [contextConfig, setContextConfig] = useState<ContextConfig>({})
+  const [toolCallingConfig, setToolCallingConfig] = useState<ToolCallingConfig>({})
   const [saving, setSaving] = useState(false)
   const { msg, toast } = useToast()
 
   async function load() {
     setLoading(true)
     try {
-      const [s, sc, cc] = await Promise.all([
+      const [s, sc, cc, tc] = await Promise.all([
         api.sessions(),
         api.sessionConfig().catch(() => ({})),
         api.contextManagement().catch(() => ({})),
+        api.toolCalling().catch(() => ({})),
       ])
       setSessions(s)
       const scParsed = (sc as { value?: string })?.value ? JSON.parse((sc as { value: string }).value) : sc
       const ccParsed = (cc as { value?: string })?.value ? JSON.parse((cc as { value: string }).value) : cc
       setSessionConfig(scParsed as SessionConfig)
       setContextConfig(ccParsed as ContextConfig)
+      setToolCallingConfig(tc as ToolCallingConfig)
     } catch {
       // ignore
     } finally {
@@ -96,6 +106,15 @@ export function SessionManagement() {
     finally { setSaving(false) }
   }
 
+  async function saveToolCallingConf() {
+    setSaving(true)
+    try {
+      await api.saveToolCalling(JSON.stringify(toolCallingConfig))
+      toast('工具调用配置已保存')
+    } catch { toast('保存失败', false) }
+    finally { setSaving(false) }
+  }
+
   return (
     <div className="space-y-6">
       {msg && (
@@ -113,6 +132,7 @@ export function SessionManagement() {
           <TabsTrigger value="sessions">会话列表</TabsTrigger>
           <TabsTrigger value="session-config">会话配置</TabsTrigger>
           <TabsTrigger value="context">上下文管理</TabsTrigger>
+          <TabsTrigger value="tool-calling">工具调用</TabsTrigger>
         </TabsList>
 
         <TabsContent value="sessions" className="mt-4 space-y-4">
@@ -133,25 +153,26 @@ export function SessionManagement() {
               {loading ? (
                 <div className="p-4 space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
               ) : sessions.length === 0 ? (
-                <div className="p-8 text-center text-sm text-muted-foreground">暂无活跃会话</div>
+                <div className="p-8 text-center text-sm text-muted-foreground">暂无活跃会话（多轮模式下才会保留会话）</div>
               ) : (
                 <div className="divide-y">
                   {sessions.map((s) => (
                     <div key={s.id} className="flex items-center gap-4 px-4 py-3">
                       <div className="flex-1 min-w-0 space-y-0.5">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs truncate text-muted-foreground">{s.id.slice(0, 16)}...</span>
-                          <Badge variant={s.status === 'active' ? 'default' : 'secondary'} className="text-xs">{s.status}</Badge>
+                          <span className="font-mono text-xs truncate text-muted-foreground">{s.id.slice(0, 20)}...</span>
+                          <Badge variant={s.status === 'active' ? 'default' : 'secondary'} className="text-xs">{s.status === 'active' ? '活跃' : s.status}</Badge>
                         </div>
-                        <div className="text-xs text-muted-foreground">
-                          {s.model && <span className="mr-3">模型: {s.model}</span>}
+                        <div className="text-xs text-muted-foreground flex flex-wrap gap-3">
+                          {s.model && <span>模型: {s.model}</span>}
                           {s.providerId && <span>提供商: {s.providerId}</span>}
+                          {s.expiresAt && <span>过期: {new Date(s.expiresAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>}
                         </div>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        {new Date(s.updatedAt).toLocaleString('zh-CN')}
+                      <div className="text-xs text-muted-foreground shrink-0">
+                        更新: {new Date(s.updatedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
                       </div>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => deleteSession(s.id)}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => deleteSession(s.id)} title="删除会话">
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
@@ -168,30 +189,48 @@ export function SessionManagement() {
               <CardTitle className="text-base flex items-center gap-2">
                 <Settings className="h-4 w-4" />会话配置
               </CardTitle>
-              <CardDescription>配置会话模式和过期时间</CardDescription>
+              <CardDescription>配置客户端会话的持久化策略。启用会话后，系统会根据 sessionId 跟踪对话状态。</CardDescription>
             </CardHeader>
             <Separator />
-            <CardContent className="pt-6 space-y-4">
+            <CardContent className="pt-6 space-y-5">
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="session-enabled"
+                  checked={sessionConfig.enabled !== false}
+                  onCheckedChange={(v) => setSessionConfig((p) => ({ ...p, enabled: v }))}
+                />
+                <div>
+                  <Label htmlFor="session-enabled">启用会话管理</Label>
+                  <p className="text-xs text-muted-foreground">关闭后每次请求都会被独立处理，不保留上下文</p>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>会话模式</Label>
                   <select
                     className="w-full rounded-md border border-input px-3 py-2 text-sm bg-background"
-                    value={sessionConfig.mode ?? 'single'}
+                    value={sessionConfig.mode ?? 'multi'}
                     onChange={(e) => setSessionConfig((p) => ({ ...p, mode: e.target.value }))}
                   >
-                    <option value="single">single（单次，不保留历史）</option>
-                    <option value="multi">multi（多轮，保留上下文）</option>
+                    <option value="multi">multi — 多轮对话，自动维护对话历史</option>
+                    <option value="single">single — 单次对话，每次响应后删除会话</option>
                   </select>
+                  <p className="text-xs text-muted-foreground">
+                    {(sessionConfig.mode ?? 'multi') === 'multi'
+                      ? '客户端携带相同 sessionId 时，自动合并历史消息并继续对话'
+                      : '每次请求独立，响应后会话自动清除，适合无状态使用场景'}
+                  </p>
                 </div>
                 <div className="space-y-2">
-                  <Label>会话TTL（秒）</Label>
+                  <Label>会话过期时间（秒）</Label>
                   <Input
                     type="number"
                     min={60}
                     value={sessionConfig.ttlSeconds ?? 3600}
                     onChange={(e) => setSessionConfig((p) => ({ ...p, ttlSeconds: Number(e.target.value) }))}
                   />
+                  <p className="text-xs text-muted-foreground">超时后会话失效，默认 3600 秒（1 小时）</p>
                 </div>
               </div>
               <Button onClick={saveSessionConf} disabled={saving}>{saving ? '保存中...' : '保存配置'}</Button>
@@ -203,7 +242,7 @@ export function SessionManagement() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">上下文管理</CardTitle>
-              <CardDescription>控制多轮对话的上下文大小和裁剪策略</CardDescription>
+              <CardDescription>在多轮对话中，控制发送给提供商的历史消息数量，防止超出模型的 Context 长度限制。</CardDescription>
             </CardHeader>
             <Separator />
             <CardContent className="pt-6 space-y-5">
@@ -213,7 +252,10 @@ export function SessionManagement() {
                   checked={contextConfig.enabled ?? false}
                   onCheckedChange={(v) => setContextConfig((p) => ({ ...p, enabled: v }))}
                 />
-                <Label htmlFor="ctx-enabled">启用上下文管理</Label>
+                <div>
+                  <Label htmlFor="ctx-enabled">启用上下文管理</Label>
+                  <p className="text-xs text-muted-foreground">对发往提供商的消息列表进行自动裁剪，适用于多轮模式</p>
+                </div>
               </div>
 
               {contextConfig.enabled && (
@@ -225,8 +267,8 @@ export function SessionManagement() {
                       onCheckedChange={(v) => setContextConfig((p) => ({ ...p, slidingWindowEnabled: v }))}
                     />
                     <div>
-                      <Label htmlFor="ctx-sliding">滑动窗口</Label>
-                      <p className="text-xs text-muted-foreground">保留最近 N 条消息</p>
+                      <Label htmlFor="ctx-sliding">消息数量限制（滑动窗口）</Label>
+                      <p className="text-xs text-muted-foreground">保留最近 N 条非系统消息，system 消息始终保留</p>
                     </div>
                   </div>
 
@@ -250,8 +292,8 @@ export function SessionManagement() {
                       onCheckedChange={(v) => setContextConfig((p) => ({ ...p, tokenLimitEnabled: v }))}
                     />
                     <div>
-                      <Label htmlFor="ctx-token">Token 限制</Label>
-                      <p className="text-xs text-muted-foreground">超出时截断早期消息</p>
+                      <Label htmlFor="ctx-token">Token 总量限制</Label>
+                      <p className="text-xs text-muted-foreground">估算消息 Token 数，超出限制时从早期消息截断，系统消息始终保留</p>
                     </div>
                   </div>
 
@@ -262,15 +304,64 @@ export function SessionManagement() {
                         type="number"
                         min={1000}
                         className="max-w-[140px]"
-                        value={contextConfig.maxTokens ?? 4096}
+                        value={contextConfig.maxTokens ?? 4000}
                         onChange={(e) => setContextConfig((p) => ({ ...p, maxTokens: Number(e.target.value) }))}
                       />
+                      <p className="text-xs text-muted-foreground">按字符数 ÷ 3 估算 Token，建议设为模型 Context 窗口的 60%–70%</p>
                     </div>
                   )}
                 </>
               )}
 
               <Button onClick={saveContextConf} disabled={saving}>{saving ? '保存中...' : '保存配置'}</Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="tool-calling" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Settings className="h-4 w-4" />工具调用（Function Calling）
+              </CardTitle>
+              <CardDescription>
+                对于不支持原生 Function Calling 的提供商，通过 Prompt 注入的方式实现工具调用兼容。
+                当客户端传入 tools 时，系统将工具定义注入 System Prompt，并解析模型回复中的函数调用指令。
+              </CardDescription>
+            </CardHeader>
+            <Separator />
+            <CardContent className="pt-6 space-y-5">
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="tc-enabled"
+                  checked={toolCallingConfig.enabled !== false}
+                  onCheckedChange={(v) => setToolCallingConfig((p) => ({ ...p, enabled: v }))}
+                />
+                <div>
+                  <Label htmlFor="tc-enabled">启用工具调用兼容</Label>
+                  <p className="text-xs text-muted-foreground">关闭后，工具定义将被原样传递给提供商，适用于提供商本身支持 Function Calling 的情况</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="tc-diagnostics"
+                  checked={toolCallingConfig.diagnostics ?? false}
+                  onCheckedChange={(v) => setToolCallingConfig((p) => ({ ...p, diagnostics: v }))}
+                />
+                <div>
+                  <Label htmlFor="tc-diagnostics">调试模式</Label>
+                  <p className="text-xs text-muted-foreground">开启后，API 响应中会附加工具调用进程详情，便于排查问题</p>
+                </div>
+              </div>
+
+              <div className="rounded-md bg-muted/50 px-4 py-3 text-xs text-muted-foreground space-y-1">
+                <p><span className="font-medium text-foreground">工作方式：</span>提示词注入 (prompt-injection)</p>
+                <p><span className="font-medium text-foreground">协议格式：</span>Managed XML &mdash; 工具定义和调用指令均使用 XML 格式嵌入</p>
+                <p><span className="font-medium text-foreground">客户端适配：</span>兼容 OpenAI 标准 tools / tool_calls 格式</p>
+              </div>
+
+              <Button onClick={saveToolCallingConf} disabled={saving}>{saving ? '保存中...' : '保存配置'}</Button>
             </CardContent>
           </Card>
         </TabsContent>

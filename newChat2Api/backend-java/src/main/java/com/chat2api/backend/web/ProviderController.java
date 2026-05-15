@@ -1,6 +1,7 @@
 package com.chat2api.backend.web;
 
 import com.chat2api.backend.domain.ProviderEntity;
+import com.chat2api.backend.repository.AccountRepository;
 import com.chat2api.backend.repository.ProviderRepository;
 import com.chat2api.backend.service.ProviderMaintenanceService;
 import org.springframework.http.HttpStatus;
@@ -23,16 +24,25 @@ import java.util.Map;
 @RequestMapping("/api/providers")
 public class ProviderController {
     private final ProviderRepository providerRepository;
+    private final AccountRepository accountRepository;
     private final ProviderMaintenanceService providerMaintenanceService;
 
-    public ProviderController(ProviderRepository providerRepository, ProviderMaintenanceService providerMaintenanceService) {
+    public ProviderController(ProviderRepository providerRepository, AccountRepository accountRepository, ProviderMaintenanceService providerMaintenanceService) {
         this.providerRepository = providerRepository;
+        this.accountRepository = accountRepository;
         this.providerMaintenanceService = providerMaintenanceService;
     }
 
     @GetMapping
     public ApiResponse<List<ProviderEntity>> list() {
         return ApiResponse.ok(providerRepository.findAll());
+    }
+
+    @GetMapping("/account-counts")
+    public ApiResponse<Map<String, Long>> accountCounts() {
+        Map<String, Long> counts = new LinkedHashMap<>();
+        accountRepository.countGroupedByProviderId().forEach(row -> counts.put((String) row[0], (Long) row[1]));
+        return ApiResponse.ok(counts);
     }
 
     @PostMapping

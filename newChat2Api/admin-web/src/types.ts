@@ -93,6 +93,14 @@ export interface SessionRecord {
   expiresAt?: string
 }
 
+export interface PagedResult<T> {
+  content: T[]
+  totalElements: number
+  totalPages: number
+  page: number
+  size: number
+}
+
 export interface SystemPrompt {
   id: string
   name: string

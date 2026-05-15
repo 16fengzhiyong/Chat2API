@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { api } from '@/api'
-import type { Provider, Account } from '@/types'
+import type { Provider, Account, PagedResult } from '@/types'
 
 function useToast() {
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
@@ -51,24 +51,112 @@ function qwenRecordMode(provider: Provider) {
   return value === 'local' ? 'local' : 'record'
 }
 
-function AccountPanel({ provider, onClose }: { provider: Provider; onClose: () => void }) {
-  const [accounts, setAccounts] = useState<Account[]>([])
+function AccountPanel({ provider, onClose, onProviderUpdate }: { provider: Provider; onClose: () => void; onProviderUpdate: (p: Provider) => void }) {
+  const PAGE_SIZE = 20
+  const [result, setResult] = useState<PagedResult<Account> | null>(null)
   const [loading, setLoading] = useState(true)
+  const [searchInput, setSearchInput] = useState('')
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(0)
   const [editing, setEditing] = useState<Account | null>(null)
   const [editName, setEditName] = useState('')
   const [editEmail, setEditEmail] = useState('')
   const [saving, setSaving] = useState(false)
+  const [defaultStatus, setDefaultStatus] = useState<string>((provider.settings?.defaultAccountStatus as string) ?? 'ACTIVE')
+  const [savingDefault, setSavingDefault] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkProcessing, setBulkProcessing] = useState(false)
   const { msg, toast } = useToast()
 
   async function load() {
     setLoading(true)
     try {
-      const all = await api.accounts()
-      setAccounts(all.filter((a) => a.providerId === provider.id))
-    } finally { setLoading(false) }
+      const data = await api.providerAccounts(provider.id, search, page, PAGE_SIZE)
+      setResult(data)
+    } catch { toast('加载失败', false) }
+    finally { setLoading(false) }
   }
 
-  useEffect(() => { load() }, [provider.id])
+  useEffect(() => { load() }, [provider.id, search, page])
+  useEffect(() => { setSelectedIds(new Set()) }, [search, page])
+
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault()
+    setPage(0)
+    setSearch(searchInput)
+  }
+
+  function clearSearch() {
+    setSearchInput('')
+    setSearch('')
+    setPage(0)
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    if (accounts.length > 0 && accounts.every((a) => selectedIds.has(a.id))) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(accounts.map((a) => a.id)))
+    }
+  }
+
+  async function bulkSetStatus(status: 'ACTIVE' | 'INACTIVE') {
+    if (selectedIds.size === 0) return
+    setBulkProcessing(true)
+    try {
+      const results = await Promise.allSettled(
+        [...selectedIds].map((id) => api.updateAccount(id, { status }))
+      )
+      const succeeded = results
+        .filter((r): r is PromiseFulfilledResult<Account> => r.status === 'fulfilled')
+        .map((r) => r.value)
+      const failedCount = results.filter((r) => r.status === 'rejected').length
+      if (result) {
+        const successMap = new Map(succeeded.map((a) => [a.id, a]))
+        setResult({ ...result, content: result.content.map((a) => successMap.get(a.id) ?? a) })
+      }
+      setSelectedIds(new Set())
+      if (failedCount > 0) {
+        toast(`${succeeded.length} 个成功，${failedCount} 个失败`, false)
+      } else {
+        toast(`已${status === 'ACTIVE' ? '启用' : '禁用'} ${succeeded.length} 个账号`)
+      }
+    } catch { toast('批量操作失败', false) }
+    finally { setBulkProcessing(false) }
+  }
+
+  async function toggleStatus(acc: Account) {
+    const newStatus = acc.status.toUpperCase() === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
+    try {
+      const updated = await api.updateAccount(acc.id, { status: newStatus })
+      if (result) {
+        setResult({ ...result, content: result.content.map((a) => (a.id === updated.id ? updated : a)) })
+      }
+    } catch { toast('状态切换失败', false) }
+  }
+
+  async function updateDefaultStatus(value: string) {
+    setSavingDefault(true)
+    try {
+      const updated = await api.updateProvider(provider.id, {
+        ...provider,
+        settings: { ...(provider.settings ?? {}), defaultAccountStatus: value },
+      })
+      setDefaultStatus(value)
+      onProviderUpdate(updated)
+      toast('默认状态已更新')
+    } catch { toast('保存失败', false) }
+    finally { setSavingDefault(false) }
+  }
 
   async function validate(id: string) {
     try {
@@ -82,7 +170,7 @@ function AccountPanel({ provider, onClose }: { provider: Provider; onClose: () =
     if (!confirm('确认删除此账号？')) return
     try {
       await api.deleteAccount(id)
-      setAccounts((prev) => prev.filter((a) => a.id !== id))
+      await load()
       toast('账号已删除')
     } catch { toast('删除失败', false) }
   }
@@ -92,7 +180,9 @@ function AccountPanel({ provider, onClose }: { provider: Provider; onClose: () =
     setSaving(true)
     try {
       const updated = await api.updateAccount(editing.id, { name: editName, email: editEmail })
-      setAccounts((prev) => prev.map((a) => (a.id === updated.id ? updated : a)))
+      if (result) {
+        setResult({ ...result, content: result.content.map((a) => (a.id === updated.id ? updated : a)) })
+      }
       setEditing(null)
       toast('账号已更新')
     } catch { toast('更新失败', false) }
@@ -105,6 +195,12 @@ function AccountPanel({ provider, onClose }: { provider: Provider; onClose: () =
     setEditEmail(acc.email ?? '')
   }
 
+  const accounts = result?.content ?? []
+  const totalPages = result?.totalPages ?? 0
+  const totalElements = result?.totalElements ?? 0
+  const allSelected = accounts.length > 0 && accounts.every((a) => selectedIds.has(a.id))
+  const someSelected = selectedIds.size > 0
+
   return (
     <div className="space-y-4">
       {msg && (
@@ -114,14 +210,71 @@ function AccountPanel({ provider, onClose }: { provider: Provider; onClose: () =
       )}
 
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={onClose} className="text-muted-foreground">
-          ← 返回
-        </Button>
+        <Button variant="ghost" size="sm" onClick={onClose} className="text-muted-foreground">← 返回</Button>
         <h2 className="font-semibold">{provider.name} 的账号</h2>
-        <Button variant="outline" size="sm" className="ml-auto" onClick={load} disabled={loading}>
-          <RefreshCw className={`h-3.5 w-3.5 mr-1 ${loading ? 'animate-spin' : ''}`} />刷新
-        </Button>
+        <div className="ml-auto flex items-center gap-2">
+          {totalElements > 0 && <span className="text-xs text-muted-foreground">共 {totalElements} 个账号</span>}
+          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+            <RefreshCw className={`h-3.5 w-3.5 mr-1 ${loading ? 'animate-spin' : ''}`} />刷新
+          </Button>
+        </div>
       </div>
+
+      <div className="flex items-center gap-2.5 rounded-md border px-3 py-2 text-sm">
+        <span className="text-muted-foreground">Reporter 上报账号的默认状态：</span>
+        <Switch
+          checked={defaultStatus === 'ACTIVE'}
+          onCheckedChange={(v) => updateDefaultStatus(v ? 'ACTIVE' : 'INACTIVE')}
+          disabled={savingDefault}
+        />
+        <span className={`text-xs font-medium ${defaultStatus === 'ACTIVE' ? 'text-green-600' : 'text-slate-500'}`}>
+          {defaultStatus === 'ACTIVE' ? '初始启用' : '初始禁用'}
+        </span>
+        <span className="text-xs text-muted-foreground ml-auto">仅影响新上报的账号</span>
+      </div>
+
+      <form onSubmit={handleSearch} className="flex gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            className="pl-9 h-8 text-sm"
+            placeholder="搜索账号名称或邮箱..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+        </div>
+        <Button type="submit" variant="outline" size="sm" className="h-8">搜索</Button>
+        {search && <Button type="button" variant="ghost" size="sm" className="h-8" onClick={clearSearch}>清除</Button>}
+      </form>
+
+      {accounts.length > 0 && (
+        <div className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${someSelected ? 'bg-primary/5 border-primary/20' : ''}`}>
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded cursor-pointer accent-primary shrink-0"
+            checked={allSelected}
+            onChange={toggleSelectAll}
+            title="全选当前页"
+          />
+          <span className="text-muted-foreground text-xs">
+            {someSelected ? `已选 ${selectedIds.size} 个` : '全选当前页'}
+          </span>
+          {someSelected && (
+            <>
+              <div className="h-4 w-px bg-border mx-1" />
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => bulkSetStatus('ACTIVE')} disabled={bulkProcessing}>
+                批量启用
+              </Button>
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => bulkSetStatus('INACTIVE')} disabled={bulkProcessing}>
+                批量禁用
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())} disabled={bulkProcessing}>
+                取消
+              </Button>
+            </>
+          )}
+        </div>
+      )}
 
       <Card>
         <CardContent className="p-0">
@@ -129,20 +282,26 @@ function AccountPanel({ provider, onClose }: { provider: Provider; onClose: () =
             <div className="p-4 space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
           ) : accounts.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground">
-              <p>此提供商暂无账号</p>
-              <p className="mt-1">请通过 Reporter 客户端上报账号</p>
+              {search ? (
+                <p>未找到匹配 &ldquo;{search}&rdquo; 的账号</p>
+              ) : (
+                <><p>此提供商暂无账号</p><p className="mt-1">请通过 Reporter 客户端上报账号</p></>
+              )}
             </div>
           ) : (
             <div className="divide-y">
               {accounts.map((acc) => (
-                <div key={acc.id} className="flex items-center gap-4 px-4 py-3">
+                <div key={acc.id} className={`flex items-center gap-3 px-4 py-3 transition-colors ${selectedIds.has(acc.id) ? 'bg-primary/5' : ''}`}>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded cursor-pointer accent-primary shrink-0"
+                    checked={selectedIds.has(acc.id)}
+                    onChange={() => toggleSelect(acc.id)}
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-sm">{acc.name}</span>
-                      <Badge
-                        variant="outline"
-                        className={`text-xs ${accountStatusBadgeClass(acc.status)}`}
-                      >
+                      <Badge variant="outline" className={`text-xs ${accountStatusBadgeClass(acc.status)}`}>
                         {acc.status}
                       </Badge>
                     </div>
@@ -155,6 +314,11 @@ function AccountPanel({ provider, onClose }: { provider: Provider; onClose: () =
                     {acc.errorMessage && <p className="text-xs text-destructive mt-0.5 truncate">{acc.errorMessage}</p>}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    <Switch
+                      checked={acc.status.toUpperCase() === 'ACTIVE'}
+                      onCheckedChange={() => toggleStatus(acc)}
+                      title={acc.status.toUpperCase() === 'ACTIVE' ? '点击禁用账号' : '点击启用账号'}
+                    />
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => validate(acc.id)} title="验证账号">
                       <Zap className="h-3.5 w-3.5" />
                     </Button>
@@ -171,6 +335,16 @@ function AccountPanel({ provider, onClose }: { provider: Provider; onClose: () =
           )}
         </CardContent>
       </Card>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">第 {page + 1} / {totalPages} 页</span>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0 || loading}>上一页</Button>
+            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1 || loading}>下一页</Button>
+          </div>
+        </div>
+      )}
 
       <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
         <DialogContent>
@@ -197,6 +371,7 @@ function AccountPanel({ provider, onClose }: { provider: Provider; onClose: () =
 
 export function Providers() {
   const [providers, setProviders] = useState<Provider[]>([])
+  const [accountCounts, setAccountCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filterEnabled, setFilterEnabled] = useState<boolean | null>(null)
@@ -212,7 +387,12 @@ export function Providers() {
   async function load() {
     setLoading(true)
     try {
-      setProviders(await api.providers())
+      const [providerList, counts] = await Promise.all([
+        api.providers(),
+        api.providerAccountCounts().catch(() => ({} as Record<string, number>)),
+      ])
+      setProviders(providerList)
+      setAccountCounts(counts)
     } finally {
       setLoading(false)
     }
@@ -291,7 +471,14 @@ export function Providers() {
   if (activeProvider) {
     return (
       <div className="space-y-4">
-        <AccountPanel provider={activeProvider} onClose={() => setActiveProvider(null)} />
+        <AccountPanel
+          provider={activeProvider}
+          onClose={() => setActiveProvider(null)}
+          onProviderUpdate={(updated) => {
+            setActiveProvider(updated)
+            setProviders((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
+          }}
+        />
       </div>
     )
   }
@@ -371,6 +558,8 @@ export function Providers() {
                       <span>{p.vendor}</span>
                       <span>·</span>
                       <span>{p.type}</span>
+                      <span>·</span>
+                      <span>{accountCounts[p.id] ?? 0} 个账号</span>
                       {p.description && <><span>·</span><span className="truncate">{p.description}</span></>}
                     </div>
                   </div>

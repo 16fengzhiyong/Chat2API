@@ -4,6 +4,9 @@ import com.chat2api.backend.domain.AccountEntity;
 import com.chat2api.backend.service.AccountService;
 import com.chat2api.backend.service.AccountValidationService;
 import com.chat2api.backend.service.RedactionService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,9 +15,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -34,6 +39,24 @@ public class AccountController {
     @GetMapping
     public ApiResponse<List<AccountEntity>> list() {
         return ApiResponse.ok(accountService.list());
+    }
+
+    @GetMapping("/provider/{providerId}")
+    public ApiResponse<Map<String, Object>> listByProvider(
+            @PathVariable String providerId,
+            @RequestParam(required = false, defaultValue = "") String search,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        Page<AccountEntity> result = accountService.pageByProvider(
+                providerId, search,
+                PageRequest.of(page, size, Sort.by("name").ascending()));
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("content", result.getContent());
+        response.put("totalElements", result.getTotalElements());
+        response.put("totalPages", result.getTotalPages());
+        response.put("page", result.getNumber());
+        response.put("size", result.getSize());
+        return ApiResponse.ok(response);
     }
 
     @GetMapping("/{id}/credentials")
