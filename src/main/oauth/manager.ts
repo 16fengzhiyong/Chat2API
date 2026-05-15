@@ -52,7 +52,7 @@ export class OAuthManager extends EventEmitter {
    */
   private getAdapter(providerId: string, providerType: ProviderType): BaseOAuthAdapter {
     const key = `${providerId}_${providerType}`
-    
+
     if (!this.adapters.has(key)) {
       const adapter = createAdapter(providerType, {
         providerId,
@@ -60,19 +60,19 @@ export class OAuthManager extends EventEmitter {
         authMethods: [],
         callbackPort: DEFAULT_CALLBACK_PORT,
       })
-      
+
       if (this.mainWindow) {
         adapter.setMainWindow(this.mainWindow)
       }
-      
+
       adapter.setProgressCallback((event) => {
         this.emit('progress', event)
         this.sendProgressToRenderer(event)
       })
-      
+
       this.adapters.set(key, adapter)
     }
-    
+
     return this.adapters.get(key)!
   }
 
@@ -100,7 +100,7 @@ export class OAuthManager extends EventEmitter {
 
     return new Promise((resolve, reject) => {
       const adapter = this.getAdapter(options.providerId, options.providerType)
-      
+
       const timeout = setTimeout(() => {
         this.cancelLogin()
         const result: OAuthResult = {
@@ -146,11 +146,11 @@ export class OAuthManager extends EventEmitter {
     mimoPhToken?: string
   ): Promise<OAuthResult> {
     const adapter = this.getAdapter(providerId, providerType)
-    
+
     if ('loginWithToken' in adapter && typeof (adapter as any).loginWithToken === 'function') {
       return await (adapter as any).loginWithToken(providerId, token, realUserID, mimoUserId, mimoPhToken)
     }
-    
+
     // For Mimo, validate with all three tokens
     if (providerType === 'mimo') {
       if (!mimoUserId || !mimoPhToken) {
@@ -166,7 +166,7 @@ export class OAuthManager extends EventEmitter {
         user_id: mimoUserId,
         ph_token: mimoPhToken,
       })
-      
+
       if (!validation.valid) {
         return {
           success: false,
@@ -175,7 +175,7 @@ export class OAuthManager extends EventEmitter {
           error: validation.error || 'Token validation failed',
         }
       }
-      
+
       return {
         success: true,
         providerId,
@@ -188,9 +188,9 @@ export class OAuthManager extends EventEmitter {
         accountInfo: validation.accountInfo,
       }
     }
-    
+
     const validation = await adapter.validateToken({ token })
-    
+
     if (!validation.valid) {
       return {
         success: false,
@@ -199,7 +199,7 @@ export class OAuthManager extends EventEmitter {
         error: validation.error || 'Token validation failed',
       }
     }
-    
+
     return {
       success: true,
       providerId,
@@ -345,13 +345,13 @@ export class OAuthManager extends EventEmitter {
 
         // Store the token
         collectedTokens[event.key] = event.value
-        
+
         // Store all cookies if provided (needed for Cloudflare-protected requests)
         if (event.allCookies) {
           collectedTokens['cookies'] = event.allCookies as any
           console.log('[OAuthManager] Stored all cookies:', Object.keys(event.allCookies).length, 'cookies')
         }
-        
+
         console.log('[OAuthManager] Collected tokens:', Object.keys(collectedTokens))
 
         // For MiniMax, we need both token and realUserID before validating
@@ -401,7 +401,7 @@ export class OAuthManager extends EventEmitter {
               hasUserId: !!hasUserId,
               hasPhToken: !!hasPhToken,
             })
-            
+
             // Clear any existing timeout
             if (validationTimeout) {
               clearTimeout(validationTimeout)
@@ -555,7 +555,7 @@ export class OAuthManager extends EventEmitter {
           console.log('[OAuthManager] Validation result:', validation)
 
           if (validation.valid) {
-            console.log('[OAuthManager] Token is valid, completing login with credentials:', JSON.stringify(finalCredentials, null, 2))
+            console.log('[OAuthManager] Token is valid, completing login with credentials keys:', Object.keys(finalCredentials).join(', '))
             inAppLoginManager.completeWithSuccess(finalCredentials)
           } else {
             console.log('[OAuthManager] Token validation failed:', validation.error)

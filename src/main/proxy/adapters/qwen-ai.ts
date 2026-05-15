@@ -148,7 +148,7 @@ export class QwenAiAdapter {
   mapModel(openaiModel: string): string {
     let model = openaiModel
     let forceThinking: boolean | undefined
-    
+
     if (model.endsWith('-thinking')) {
       forceThinking = true
       model = model.slice(0, -9)
@@ -156,15 +156,15 @@ export class QwenAiAdapter {
       forceThinking = false
       model = model.slice(0, -5)
     }
-    
-    ;(this as any)._forceThinking = forceThinking
-    
+
+    ; (this as any)._forceThinking = forceThinking
+
     const lowerModel = model.toLowerCase()
-    
+
     if (MODEL_ALIASES[lowerModel]) {
       return MODEL_ALIASES[lowerModel]
     }
-    
+
     if (this.provider.modelMappings) {
       for (const [key, value] of Object.entries(this.provider.modelMappings)) {
         if (key.toLowerCase() === lowerModel) {
@@ -172,7 +172,7 @@ export class QwenAiAdapter {
         }
       }
     }
-    
+
     return model
   }
 
@@ -236,7 +236,7 @@ export class QwenAiAdapter {
 
     try {
       console.log('[QwenAI] Deleting all chats for account')
-      
+
       const response = await this.axiosInstance.delete(url, {
         headers: this.getHeaders(),
       })
@@ -265,7 +265,7 @@ export class QwenAiAdapter {
     }
 
     const modelId = this.mapModel(request.model)
-    
+
     // Get forced thinking mode setting from originalModel (preserves user's intent before mapping)
     // If originalModel exists, use it for thinking detection; otherwise fall back to request.model
     const modelForThinking = request.originalModel || request.model
@@ -289,11 +289,11 @@ export class QwenAiAdapter {
     console.log('[QwenAI] Created new chat:', chatId)
 
     const messages = request.messages
-    
+
     // Extract system message and user message
     let systemContent = ''
     let userContent = ''
-    
+
     // Single-turn mode: extract all messages
     for (const msg of messages) {
       if (msg.role === 'system') {
@@ -302,7 +302,7 @@ export class QwenAiAdapter {
         userContent = msg.content
       }
     }
-    
+
     // If system prompt exists, prepend it to user content
     if (systemContent) {
       userContent = `${systemContent}\n\nUser: ${userContent}`
@@ -317,17 +317,17 @@ export class QwenAiAdapter {
     // 1. Model name suffix: -thinking (force thinking), -fast (force fast mode)
     // 2. enable_thinking parameter for explicit control
     // 3. If neither is specified, thinking mode is disabled by default (fast mode)
-    const shouldEnableThinking = forceThinking !== undefined 
-      ? forceThinking 
+    const shouldEnableThinking = forceThinking !== undefined
+      ? forceThinking
       : request.enable_thinking === true
-    
+
     const featureConfig: Record<string, any> = {
       thinking_enabled: shouldEnableThinking,
       output_schema: 'phase',
       research_mode: 'normal',
       auto_thinking: false,
       thinking_mode: shouldEnableThinking ? 'Thinking' : 'Fast',
-      auto_search: true,
+      auto_search: false, // Default to disable auto search
     }
 
     if (shouldEnableThinking) {
@@ -419,11 +419,11 @@ export class QwenAiStreamHandler {
 
   private sendToolCalls(transStream: PassThrough): void {
     if (this.toolCallsSent) return
-    
+
     const toolCalls = parseToolUse(this.content)
     if (toolCalls && toolCalls.length > 0) {
       this.toolCallsSent = true
-      
+
       // Send tool_calls delta
       for (let i = 0; i < toolCalls.length; i++) {
         const tc = toolCalls[i]
@@ -451,7 +451,7 @@ export class QwenAiStreamHandler {
           })}\n\n`
         )
       }
-      
+
       // Send finish with tool_calls
       transStream.write(
         `data: ${JSON.stringify({
@@ -499,7 +499,7 @@ export class QwenAiStreamHandler {
       onEvent: (event: any) => {
         try {
           console.log('[QwenAI] Parsed event:', event.event, 'data:', event.data?.substring(0, 200))
-          
+
           if (event.data === '[DONE]') {
             console.log('[QwenAI] Received [DONE] signal')
             return
@@ -592,10 +592,10 @@ export class QwenAiStreamHandler {
                 sendInitialChunk()
               }
               console.log('[QwenAI] Entering answer branch, content:', content)
-              
+
               // Accumulate content for tool call detection
               this.content += content
-              
+
               if (content) {
                 console.log('[QwenAI] Sending content chunk:', content)
                 const chunk = {
@@ -614,7 +614,7 @@ export class QwenAiStreamHandler {
               }
               // Accumulate content for tool call detection
               this.content += content
-              
+
               const chunk = {
                 id: this.responseId || this.chatId,
                 model: this.model,
@@ -632,7 +632,7 @@ export class QwenAiStreamHandler {
                 this.sendToolCalls(transStream)
                 return
               }
-              
+
               const finishReason = delta.finish_reason || 'stop'
               const finalChunk = {
                 id: this.responseId || this.chatId,
