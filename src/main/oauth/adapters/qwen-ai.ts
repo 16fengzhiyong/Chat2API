@@ -60,11 +60,17 @@ export class QwenAiAdapter extends BaseOAuthAdapter {
   }
 
   async loginWithToken(providerId: string, token: string): Promise<OAuthResult> {
-    this.emitProgress('pending', 'Validating Token...')
-    
+    this.emitProgress('pending', 'Validating credentials...')
+
+    // 区分凭据类型：JWT token 以 "eyJ" 开头且有三段，否则视为完整 Cookie Header 字符串
+    // （注意：当前 UI 的 LoginDialog 中没有 qwen-ai 入口，此路径暂不可达，
+    //   此处修复是为防止未来接入时出现 Cookie 被误存为 token 的问题）
+    const isJwt = token.startsWith('eyJ') && token.split('.').length === 3
+    const credentials: Record<string, string> = isJwt ? { token } : { cookies: token }
+
     try {
-      const validation = await this.validateToken({ token })
-      
+      const validation = await this.validateToken(credentials)
+
       if (!validation.valid) {
         return {
           success: false,
@@ -73,14 +79,14 @@ export class QwenAiAdapter extends BaseOAuthAdapter {
           error: validation.error || 'Token validation failed',
         }
       }
-      
-      this.emitProgress('success', 'Token validation successful')
-      
+
+      this.emitProgress('success', 'Validation successful')
+
       return {
         success: true,
         providerId,
         providerType: 'qwen-ai',
-        credentials: { token },
+        credentials,
         accountInfo: validation.accountInfo,
       }
     } catch (error) {
