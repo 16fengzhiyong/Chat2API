@@ -1,4 +1,33 @@
 function createBackendClient(configStore) {
+  function netRequest(url, options = {}) {
+    const { net } = require('electron')
+    return new Promise((resolve, reject) => {
+      const req = net.request({ method: options.method || 'GET', url })
+      const headers = options.headers || {}
+      for (const [key, value] of Object.entries(headers)) {
+        req.setHeader(key, value)
+      }
+      req.on('response', (res) => {
+        const chunks = []
+        res.on('data', (chunk) => chunks.push(chunk))
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8')
+          resolve({
+            status: res.statusCode,
+            ok: res.statusCode >= 200 && res.statusCode < 300,
+            text: () => Promise.resolve(text),
+          })
+        })
+        res.on('error', reject)
+      })
+      req.on('error', reject)
+      if (options.body) {
+        req.write(options.body)
+      }
+      req.end()
+    })
+  }
+
   async function request(pathname, options = {}) {
     const current = configStore.get()
     const backendUrl = normalizeBackendUrl(current.backendUrl)
@@ -10,7 +39,7 @@ function createBackendClient(configStore) {
       headers['X-Reporter-Id'] = current.clientId
       headers['X-Reporter-Secret'] = current.secret
     }
-    const response = await fetch(`${backendUrl}${pathname}`, { ...options, headers })
+    const response = await netRequest(`${backendUrl}${pathname}`, { ...options, headers })
     const text = await response.text()
     const payload = parsePayload(text)
     if (!response.ok) {
