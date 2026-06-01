@@ -39,6 +39,7 @@ import { normalizeRequestLogConfig } from '../requestLogs/types'
 import { normalizeToolCallingConfig } from '../../shared/toolCalling'
 import { AppLogManager } from '../appLogs/manager'
 import type { AppLogFilter } from '../appLogs/types'
+import { SessionIndexManager } from './SessionIndexManager'
 
 // Dynamically import electron-store (ESM module)
 let Store: any = null
@@ -59,6 +60,7 @@ class StoreManager {
   private initializationError: Error | null = null
   private requestLogManager: RequestLogManager | null = null
   private appLogManager: AppLogManager | null = null
+  private readonly sessionIndex = new SessionIndexManager()
 
   setMainWindow(window: BrowserWindow | null): void {
     this.mainWindow = window
@@ -106,6 +108,7 @@ class StoreManager {
       await this.initializeAppLogManager(storagePath)
       await this.initializeRequestLogManager(storagePath)
       await this.initializeDefaultProviders()
+      this.initializeSessionIndex()
       this.isInitialized = true
       this.initializationError = null
     } catch (error) {
@@ -123,6 +126,7 @@ class StoreManager {
         })
         await this.initializeAppLogManager(storagePath)
         await this.initializeRequestLogManager(storagePath)
+        this.initializeSessionIndex()
         this.isInitialized = true
         this.initializationError = null
         console.log('[Store] Successfully recovered from corrupted data')
@@ -1241,6 +1245,17 @@ class StoreManager {
     return this.getSystemPrompts().filter(p => p.type === type)
   }
 
+  // ==================== Session Index Initialization ====================
+
+  private initializeSessionIndex(): void {
+    const sessions = this.store!.get('sessions') || []
+    this.sessionIndex.load(sessions)
+  }
+
+  private persistSessions(): void {
+    this.store!.set('sessions', this.sessionIndex.getAll())
+  }
+
   // ==================== Session Operations ====================
 
   /**
@@ -1275,32 +1290,25 @@ class StoreManager {
    */
   getSessions(): SessionRecord[] {
     this.ensureInitialized()
-    return this.store!.get('sessions') || []
+    return this.sessionIndex.getAll()
   }
 
   /**
-   * Get Session By ID
+   * Get Session By ID (indexed: O(1) lookup)
    */
   getSessionById(id: string): SessionRecord | undefined {
     this.ensureInitialized()
-    const sessions = this.store!.get('sessions') || []
-    return sessions.find((s: SessionRecord) => s.id === id)
+    return this.sessionIndex.getById(id)
   }
 
   /**
-   * Get Active Sessions
+   * Get Active Sessions (indexed: O(1) status lookup + time filter)
    */
   getActiveSessions(): SessionRecord[] {
     this.ensureInitialized()
-    const sessions = this.store!.get('sessions') || []
     const config = this.getSessionConfig()
     const timeoutMs = config.sessionTimeout * 60 * 1000
-    const now = Date.now()
-    
-    return sessions.filter((s: SessionRecord) => 
-      s.status === 'active' && 
-      (now - s.lastActiveAt) < timeoutMs
-    )
+    return this.sessionIndex.getActive(timeoutMs)
   }
 
   /**
@@ -1308,9 +1316,8 @@ class StoreManager {
    */
   addSession(session: SessionRecord): void {
     this.ensureInitialized()
-    const sessions = this.store!.get('sessions') || []
-    sessions.push(session)
-    this.store!.set('sessions', sessions)
+    this.sessionIndex.add(session)
+    this.persistSessions()
   }
 
   /**
@@ -1318,20 +1325,11 @@ class StoreManager {
    */
   updateSession(id: string, updates: Partial<SessionRecord>): SessionRecord | null {
     this.ensureInitialized()
-    const sessions = this.store!.get('sessions') || []
-    const index = sessions.findIndex((s: SessionRecord) => s.id === id)
-    
-    if (index === -1) {
-      return null
+    const result = this.sessionIndex.update(id, updates)
+    if (result) {
+      this.persistSessions()
     }
-    
-    sessions[index] = {
-      ...sessions[index],
-      ...updates,
-    }
-    
-    this.store!.set('sessions', sessions)
-    return sessions[index]
+    return result
   }
 
   /**
@@ -1339,15 +1337,13 @@ class StoreManager {
    */
   addMessageToSession(sessionId: string, message: ChatMessage): SessionRecord | null {
     this.ensureInitialized()
-    const sessions = this.store!.get('sessions') || []
-    const index = sessions.findIndex((s: SessionRecord) => s.id === sessionId)
+    const session = this.sessionIndex.getById(sessionId)
     
-    if (index === -1) {
+    if (!session) {
       return null
     }
     
     const config = this.getSessionConfig()
-    const session = sessions[index]
     
     if (session.messages.length >= config.maxMessagesPerSession) {
       session.messages = session.messages.slice(-config.maxMessagesPerSession + 1)
@@ -1356,26 +1352,20 @@ class StoreManager {
     session.messages.push(message)
     session.lastActiveAt = Date.now()
     
-    sessions[index] = session
-    this.store!.set('sessions', sessions)
+    this.persistSessions()
     return session
   }
 
   /**
-   * Delete Session
+   * Delete Session (indexed: O(1) lookup)
    */
   deleteSession(id: string): boolean {
     this.ensureInitialized()
-    const sessions = this.store!.get('sessions') || []
-    const index = sessions.findIndex((s: SessionRecord) => s.id === id)
-    
-    if (index === -1) {
-      return false
+    const result = this.sessionIndex.remove(id)
+    if (result) {
+      this.persistSessions()
     }
-    
-    sessions.splice(index, 1)
-    this.store!.set('sessions', sessions)
-    return true
+    return result
   }
 
   /**
@@ -1394,7 +1384,7 @@ class StoreManager {
    */
   cleanExpiredSessions(): number {
     this.ensureInitialized()
-    const sessions = this.store!.get('sessions') || []
+    const sessions = this.sessionIndex.getAll()
     const config = this.getSessionConfig()
     const timeoutMs = config.sessionTimeout * 60 * 1000
     const now = Date.now()
@@ -1431,27 +1421,26 @@ class StoreManager {
       })
     }
     
-    this.store!.set('sessions', remainingSessions)
+    this.sessionIndex.replace(remainingSessions)
+    this.persistSessions()
     
     return removedCount
   }
 
   /**
-   * Get Sessions By Account ID
+   * Get Sessions By Account ID (indexed: O(1) lookup)
    */
   getSessionsByAccountId(accountId: string): SessionRecord[] {
     this.ensureInitialized()
-    const sessions = this.store!.get('sessions') || []
-    return sessions.filter((s: SessionRecord) => s.accountId === accountId)
+    return this.sessionIndex.getByAccountId(accountId)
   }
 
   /**
-   * Get Sessions By Provider ID
+   * Get Sessions By Provider ID (indexed: O(1) lookup)
    */
   getSessionsByProviderId(providerId: string): SessionRecord[] {
     this.ensureInitialized()
-    const sessions = this.store!.get('sessions') || []
-    return sessions.filter((s: SessionRecord) => s.providerId === providerId)
+    return this.sessionIndex.getByProviderId(providerId)
   }
 
   /**
@@ -1459,7 +1448,8 @@ class StoreManager {
    */
   clearAllSessions(): void {
     this.ensureInitialized()
-    this.store!.set('sessions', [])
+    this.sessionIndex.clear()
+    this.persistSessions()
   }
 
   // ==================== Model Management Operations ====================
