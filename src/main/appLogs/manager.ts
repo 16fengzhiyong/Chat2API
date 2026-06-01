@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import type { LogEntry } from '../store/types.ts'
 import type { AppLogFilter, AppLogStats, AppLogTrendPoint } from './types.ts'
+import { CollectionIndex } from '../store/CollectionIndex.ts'
 
 interface AppLogManagerOptions {
   storageDir: string
@@ -18,6 +19,10 @@ export class AppLogManager {
   private persistTimer: NodeJS.Timeout | null = null
   private dirty = false
   private readonly persistDelayMs = 2000
+  private readonly index = new CollectionIndex<LogEntry>({
+    unique: ['id'],
+    grouped: ['level', 'accountId'],
+  })
 
   constructor(options: AppLogManagerOptions) {
     this.storageDir = options.storageDir
@@ -30,6 +35,7 @@ export class AppLogManager {
 
     mkdirSync(this.storageDir, { recursive: true })
     this.logs = this.trimLogs(this.loadLogs())
+    this.index.rebuild(this.logs)
     this.initialized = true
   }
 
@@ -37,6 +43,7 @@ export class AppLogManager {
     this.ensureInitialized()
     this.maxEntries = Math.max(0, maxEntries)
     this.logs = this.trimLogs(this.logs)
+    this.index.rebuild(this.logs)
     this.schedulePersist()
   }
 
@@ -55,6 +62,7 @@ export class AppLogManager {
     this.logs = this.trimLogs(
       [...byId.values()].sort((a, b) => a.timestamp - b.timestamp),
     )
+    this.index.rebuild(this.logs)
     this.schedulePersist()
     return true
   }
@@ -62,7 +70,12 @@ export class AppLogManager {
   addLog(entry: LogEntry): LogEntry {
     this.ensureInitialized()
     this.logs.push(entry)
-    this.logs = this.trimLogs(this.logs)
+    this.index.add(entry)
+    const trimmed = this.trimLogs(this.logs)
+    if (trimmed.length !== this.logs.length) {
+      this.logs = trimmed
+      this.index.rebuild(this.logs)
+    }
     this.schedulePersist()
     return entry
   }
@@ -70,15 +83,18 @@ export class AppLogManager {
   replaceLogs(logs: LogEntry[]): void {
     this.ensureInitialized()
     this.logs = this.trimLogs([...logs].sort((a, b) => a.timestamp - b.timestamp))
+    this.index.rebuild(this.logs)
     this.schedulePersist()
   }
 
   getLogs(filter?: AppLogFilter): LogEntry[] {
     this.ensureInitialized()
-    let result = [...this.logs]
+    let result: LogEntry[]
 
     if (filter?.level && filter.level !== 'all') {
-      result = result.filter((entry) => entry.level === filter.level)
+      result = [...this.index.getMany('level', filter.level)]
+    } else {
+      result = [...this.logs]
     }
 
     if (filter?.keyword) {
@@ -109,12 +125,13 @@ export class AppLogManager {
 
   getLogById(id: string): LogEntry | undefined {
     this.ensureInitialized()
-    return this.logs.find((entry) => entry.id === id)
+    return this.index.getOne('id', id)
   }
 
   clearLogs(): void {
     this.ensureInitialized()
     this.logs = []
+    this.index.clear()
     this.schedulePersist()
   }
 
@@ -138,7 +155,8 @@ export class AppLogManager {
 
   getAccountTrend(accountId: string, days: number = 7): AppLogTrendPoint[] {
     this.ensureInitialized()
-    const accountLogs = this.logs.filter((entry) => entry.accountId === accountId && entry.requestId)
+    const accountLogs = this.index.getMany('accountId', accountId)
+      .filter((entry) => entry.requestId)
     return this.getTrendFromLogs(accountLogs, days, true)
   }
 

@@ -14,6 +14,7 @@ import {
   sanitizeRequestLogUpdates,
   trimRequestLogsToMaxEntries,
 } from './sanitizer.ts'
+import { CollectionIndex } from '../store/CollectionIndex.ts'
 
 interface RequestLogManagerOptions {
   storageDir: string
@@ -29,6 +30,10 @@ export class RequestLogManager {
   private persistTimer: NodeJS.Timeout | null = null
   private dirty = false
   private readonly persistDelayMs = 2000
+  private readonly index = new CollectionIndex<RequestLogEntry>({
+    unique: ['id'],
+    grouped: ['status', 'providerId'],
+  })
 
   constructor(options: RequestLogManagerOptions) {
     this.storageDir = options.storageDir
@@ -41,12 +46,14 @@ export class RequestLogManager {
 
     mkdirSync(this.storageDir, { recursive: true })
     this.requestLogs = this.loadRequestLogs()
+    this.index.rebuild(this.requestLogs)
     this.initialized = true
   }
 
   setConfig(config: Partial<RequestLogConfig>): void {
     this.config = normalizeRequestLogConfig(config)
     this.requestLogs = trimRequestLogsToMaxEntries(this.requestLogs, this.config)
+    this.index.rebuild(this.requestLogs)
     this.schedulePersist()
   }
 
@@ -66,6 +73,7 @@ export class RequestLogManager {
         })),
       this.config,
     )
+    this.index.rebuild(this.requestLogs)
     this.schedulePersist()
 
     return true
@@ -84,7 +92,12 @@ export class RequestLogManager {
     }
 
     this.requestLogs.push(logEntry)
-    this.requestLogs = trimRequestLogsToMaxEntries(this.requestLogs, this.config)
+    this.index.add(logEntry)
+    const trimmed = trimRequestLogsToMaxEntries(this.requestLogs, this.config)
+    if (trimmed.length !== this.requestLogs.length) {
+      this.requestLogs = trimmed
+      this.index.rebuild(this.requestLogs)
+    }
     this.schedulePersist()
 
     return logEntry
@@ -96,29 +109,35 @@ export class RequestLogManager {
       return false
     }
 
-    const index = this.requestLogs.findIndex((entry) => entry.id === id)
-    if (index === -1) {
+    const oldEntry = this.index.getOne('id', id)
+    if (!oldEntry) {
       return false
     }
 
-    this.requestLogs[index] = {
-      ...this.requestLogs[index],
+    const idx = this.requestLogs.indexOf(oldEntry)
+    const newEntry: RequestLogEntry = {
+      ...oldEntry,
       ...sanitizeRequestLogUpdates(updates, this.config),
     }
+    this.requestLogs[idx] = newEntry
+    this.index.update(oldEntry, newEntry)
     this.schedulePersist()
     return true
   }
 
   getRequestLogs(limit?: number, filter?: RequestLogFilter): RequestLogEntry[] {
     this.ensureInitialized()
-    let result = [...this.requestLogs]
+    let result: RequestLogEntry[]
 
-    if (filter?.status) {
-      result = result.filter((entry) => entry.status === filter.status)
-    }
-
-    if (filter?.providerId) {
-      result = result.filter((entry) => entry.providerId === filter.providerId)
+    if (filter?.status && filter?.providerId) {
+      const byStatus = this.index.getMany('status', filter.status)
+      result = byStatus.filter((entry) => entry.providerId === filter.providerId)
+    } else if (filter?.status) {
+      result = [...this.index.getMany('status', filter.status)]
+    } else if (filter?.providerId) {
+      result = [...this.index.getMany('providerId', filter.providerId)]
+    } else {
+      result = [...this.requestLogs]
     }
 
     result.sort((a, b) => b.timestamp - a.timestamp)
@@ -132,12 +151,13 @@ export class RequestLogManager {
 
   getRequestLogById(id: string): RequestLogEntry | undefined {
     this.ensureInitialized()
-    return this.requestLogs.find((entry) => entry.id === id)
+    return this.index.getOne('id', id)
   }
 
   clearRequestLogs(): void {
     this.ensureInitialized()
     this.requestLogs = []
+    this.index.clear()
     this.schedulePersist()
   }
 
