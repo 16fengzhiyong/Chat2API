@@ -91,6 +91,19 @@ router.post('/', async (ctx: Context) => {
       return
     }
 
+    try {
+      const endpointUrl = new URL(request.apiEndpoint)
+      if (!['http:', 'https:'].includes(endpointUrl.protocol)) {
+        ctx.status = 400
+        ctx.body = createErrorResponse('invalid_request', 'apiEndpoint must use http or https protocol')
+        return
+      }
+    } catch {
+      ctx.status = 400
+      ctx.body = createErrorResponse('invalid_request', 'apiEndpoint must be a valid URL')
+      return
+    }
+
     const provider = ProviderManager.create({
       name: request.name,
       type: request.type || 'custom',
@@ -132,6 +145,18 @@ router.put('/:id', async (ctx: Context) => {
     }
 
     if (request.apiEndpoint !== undefined) {
+      try {
+        const endpointUrl = new URL(request.apiEndpoint)
+        if (!['http:', 'https:'].includes(endpointUrl.protocol)) {
+          ctx.status = 400
+          ctx.body = createErrorResponse('invalid_request', 'apiEndpoint must use http or https protocol')
+          return
+        }
+      } catch {
+        ctx.status = 400
+        ctx.body = createErrorResponse('invalid_request', 'apiEndpoint must be a valid URL')
+        return
+      }
       updates.apiEndpoint = request.apiEndpoint
     }
 
