@@ -3,6 +3,7 @@
  * Implements proxy server based on Koa
  */
 
+import { timingSafeEqual } from 'crypto'
 import Koa, { type Context, type Next } from 'koa'
 import Router from '@koa/router'
 import bodyParser from 'koa-bodyparser'
@@ -14,6 +15,14 @@ import { storeManager } from '../store/store'
 import { sessionManager } from './sessionManager'
 
 const SLOW_REQUEST_THRESHOLD_MS = 1500
+
+/**
+ * Constant-time string comparison to prevent timing attacks.
+ */
+function timingSafeCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  return timingSafeEqual(Buffer.from(a, 'utf-8'), Buffer.from(b, 'utf-8'))
+}
 
 /**
  * Proxy Server Class
@@ -39,10 +48,27 @@ export class ProxyServer {
    */
   private setupMiddleware(): void {
     this.app.use(async (ctx, next) => {
-      ctx.set('Access-Control-Allow-Origin', '*')
-      ctx.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-      ctx.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-      ctx.set('Access-Control-Max-Age', '86400')
+      const proxyConfig = proxyStatusManager.getConfig()
+      const corsEnabled = proxyConfig.enableCors !== false
+      const corsOrigin = (Array.isArray(proxyConfig.corsOrigin)
+        ? proxyConfig.corsOrigin.join(',')
+        : proxyConfig.corsOrigin) || '*'
+
+      if (corsEnabled) {
+        const allowedOrigin = corsOrigin === '*'
+          ? '*'
+          : this.matchCorsOrigin(ctx.get('Origin'), corsOrigin)
+
+        if (allowedOrigin) {
+          ctx.set('Access-Control-Allow-Origin', allowedOrigin)
+          ctx.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+          ctx.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+          ctx.set('Access-Control-Max-Age', '86400')
+          if (allowedOrigin !== '*') {
+            ctx.set('Vary', 'Origin')
+          }
+        }
+      }
 
       if (ctx.method === 'OPTIONS') {
         ctx.status = 204
@@ -53,15 +79,15 @@ export class ProxyServer {
     })
 
     this.app.use(bodyParser({
-      jsonLimit: '50mb',
-      formLimit: '50mb',
-      textLimit: '50mb',
+      jsonLimit: '10mb',
+      formLimit: '1mb',
+      textLimit: '1mb',
     }))
 
     // API Key validation middleware
     this.app.use(async (ctx, next) => {
       // Skip paths that don't require authentication
-      const publicPaths = ['/', '/health', '/stats']
+      const publicPaths = ['/', '/health']
       if (publicPaths.includes(ctx.path)) {
         await next()
         return
@@ -94,7 +120,7 @@ export class ProxyServer {
         }
         
         const validKey = config.apiKeys.find(
-          k => k.key === providedKey && k.enabled
+          k => k.enabled && timingSafeCompare(k.key, providedKey)
         )
         
         if (!validKey) {
@@ -191,6 +217,31 @@ export class ProxyServer {
     })
 
     this.router.get('/stats', async (ctx) => {
+      const config = storeManager.getConfig()
+
+      if (config.enableApiKey && config.apiKeys && config.apiKeys.length > 0) {
+        const authHeader = ctx.get('Authorization') || ''
+        const providedKey = authHeader.startsWith('Bearer ')
+          ? authHeader.slice(7)
+          : (ctx.query.api_key as string) || ctx.get('X-API-Key')
+
+        if (!providedKey) {
+          ctx.status = 401
+          ctx.body = { error: { message: 'API key is required', type: 'invalid_request_error', code: 'missing_api_key' } }
+          return
+        }
+
+        const validKey = config.apiKeys.find(
+          k => k.enabled && timingSafeCompare(k.key, providedKey)
+        )
+
+        if (!validKey) {
+          ctx.status = 401
+          ctx.body = { error: { message: 'Invalid API key', type: 'invalid_request_error', code: 'invalid_api_key' } }
+          return
+        }
+      }
+
       const statistics = proxyStatusManager.getStatistics()
       ctx.body = statistics
     })
@@ -244,7 +295,7 @@ export class ProxyServer {
       ctx.status = 404
       ctx.body = {
         error: {
-          message: `Route not found: ${ctx.method} ${ctx.path}`,
+          message: 'Route not found',
           type: 'not_found_error',
         },
       }
@@ -349,6 +400,19 @@ export class ProxyServer {
   async restart(port?: number, host?: string): Promise<boolean> {
     await this.stop()
     return this.start(port, host)
+  }
+
+  /**
+   * Match the request Origin against the configured CORS origins.
+   * Returns the matched origin string or null if no match.
+   */
+  private matchCorsOrigin(requestOrigin: string, configuredOrigin: string): string | null {
+    if (!requestOrigin) return null
+    const allowed = configuredOrigin.split(',').map(o => o.trim().toLowerCase())
+    if (allowed.includes(requestOrigin.toLowerCase())) {
+      return requestOrigin
+    }
+    return null
   }
 
   /**

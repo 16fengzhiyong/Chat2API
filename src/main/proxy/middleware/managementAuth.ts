@@ -4,8 +4,16 @@
  */
 
 import type { Context, Next } from 'koa'
-import { randomUUID } from 'crypto'
+import { randomUUID, timingSafeEqual } from 'crypto'
 import { storeManager } from '../../store/store'
+
+/**
+ * Constant-time string comparison to prevent timing attacks.
+ */
+function timingSafeCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  return timingSafeEqual(Buffer.from(a, 'utf-8'), Buffer.from(b, 'utf-8'))
+}
 
 /**
  * Management API Error Response Interface
@@ -110,7 +118,7 @@ export async function managementAuthMiddleware(ctx: Context, next: Next): Promis
     return
   }
 
-  if (providedToken !== managementConfig.managementApiSecret) {
+  if (!timingSafeCompare(providedToken, managementConfig.managementApiSecret)) {
     ctx.status = 401
     ctx.body = createUnauthorizedResponse(
       'Invalid management API secret',
