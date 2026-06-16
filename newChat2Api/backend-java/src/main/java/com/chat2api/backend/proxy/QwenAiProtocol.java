@@ -20,7 +20,9 @@ final class QwenAiProtocol {
             "qwen3-coder", "qwen3-coder-plus",
             "qwen3-vl", "qwen3-vl-235b-a22b",
             "qwen3-omni", "qwen3-omni-flash",
-            "qwen2.5", "qwen2.5-max"
+            "qwen2.5", "qwen2.5-max",
+            "qwen-image", "qwen3.7-plus",
+            "qwen-video", "qwen3.7-plus"
     );
 
     String authCookie(Map<String, String> credentials) {
@@ -73,6 +75,12 @@ final class QwenAiProtocol {
     String chatType(Map<String, Object> request, String originalModel, String actualModel, QwenAiOptions options) {
         String model = originalModel == null || originalModel.isBlank() ? actualModel : originalModel;
         String lower = model.toLowerCase();
+        if (lower.equals("qwen-image") || lower.contains("t2i")) {
+            return "t2i";
+        }
+        if (lower.equals("qwen-video") || lower.contains("t2v")) {
+            return "t2v";
+        }
         if (hasModeSuffix(lower, "search")) {
             return QwenAiOptions.SEARCH_ON;
         }
@@ -81,6 +89,14 @@ final class QwenAiProtocol {
             return truthy(enableSearch) ? QwenAiOptions.SEARCH_ON : "t2t";
         }
         return QwenAiOptions.SEARCH_ON.equals(options.searchMode()) ? QwenAiOptions.SEARCH_ON : "t2t";
+    }
+
+    boolean isVideoChatType(String chatType) {
+        return "t2v".equals(chatType) || "i2v".equals(chatType);
+    }
+
+    boolean isImageChatType(String chatType) {
+        return "t2i".equals(chatType);
     }
 
     Map<String, Object> newChatBody(String modelId, String chatMode, String chatType) {
@@ -96,6 +112,15 @@ final class QwenAiProtocol {
 
     Map<String, Object> completionBody(Map<String, Object> request, String modelId, String chatId, String parentId, String chatMode, String thinkingMode, String chatType) {
         long timestamp = Instant.now().getEpochSecond();
+        boolean isVideo = isVideoChatType(chatType);
+        Object size = request.get("size");
+        List<Map<String, Object>> imageFiles = extractImageFiles(request);
+        boolean hasImages = !imageFiles.isEmpty();
+
+        // i2v: has images in request with video model
+        String effectiveChatType = ("t2v".equals(chatType) && hasImages) ? "i2v" : chatType;
+        boolean isVideoFinal = "t2v".equals(effectiveChatType) || "i2v".equals(effectiveChatType);
+
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("fid", uuid());
         message.put("parentId", blankToNull(parentId));
@@ -103,16 +128,16 @@ final class QwenAiProtocol {
         message.put("role", "user");
         message.put("content", promptContent(request));
         message.put("user_action", "chat");
-        message.put("files", List.of());
+        message.put("files", imageFiles);
         message.put("timestamp", timestamp);
         message.put("models", List.of(modelId));
-        message.put("chat_type", chatType);
-        message.put("feature_config", featureConfig(request, thinkingMode, chatType));
-        message.put("extra", meta(chatType));
-        message.put("sub_chat_type", chatType);
+        message.put("chat_type", effectiveChatType);
+        message.put("feature_config", featureConfig(request, thinkingMode, effectiveChatType));
+        message.put("extra", meta(effectiveChatType, size));
+        message.put("sub_chat_type", effectiveChatType);
         message.put("parent_id", blankToNull(parentId));
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("stream", true);
+        payload.put("stream", !isVideoFinal);
         payload.put("version", "2.1");
         payload.put("incremental_output", true);
         payload.put("chat_id", chatId);
@@ -121,6 +146,9 @@ final class QwenAiProtocol {
         payload.put("parent_id", blankToNull(parentId));
         payload.put("messages", List.of(message));
         payload.put("timestamp", timestamp);
+        if (size != null && !String.valueOf(size).isBlank()) {
+            payload.put("size", String.valueOf(size));
+        }
         return payload;
     }
 
@@ -215,8 +243,15 @@ final class QwenAiProtocol {
     }
 
     private Map<String, Object> meta(String chatType) {
+        return meta(chatType, null);
+    }
+
+    private Map<String, Object> meta(String chatType, Object size) {
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("subChatType", chatType);
+        if (size != null && !String.valueOf(size).isBlank()) {
+            meta.put("size", String.valueOf(size));
+        }
         Map<String, Object> wrapper = new LinkedHashMap<>();
         wrapper.put("meta", meta);
         return wrapper;
@@ -274,6 +309,77 @@ final class QwenAiProtocol {
             }
         }
         return null;
+    }
+
+    String parseVideoTaskId(String responseBody) throws Exception {
+        if (responseBody == null || responseBody.isBlank()) {
+            return "";
+        }
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        Map<String, Object> parsed = mapper.readValue(responseBody, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+        Object data = parsed.get("data");
+        if (data instanceof Map<?, ?> dataMap) {
+            Object messages = dataMap.get("messages");
+            if (messages instanceof List<?> msgList && !msgList.isEmpty()) {
+                Object firstMsg = msgList.get(0);
+                if (firstMsg instanceof Map<?, ?> msg) {
+                    Object extra = msg.get("extra");
+                    if (extra instanceof Map<?, ?> extraMap) {
+                        Object wanx = extraMap.get("wanx");
+                        if (wanx instanceof Map<?, ?> wanxMap) {
+                            Object taskId = wanxMap.get("task_id");
+                            return taskId == null ? "" : String.valueOf(taskId);
+                        }
+                    }
+                }
+            }
+        }
+        return "";
+    }
+
+    String taskStatusUrl(String taskId) {
+        return BASE_URL + "/api/v1/tasks/status/" + taskId;
+    }
+
+    private List<Map<String, Object>> extractImageFiles(Map<String, Object> request) {
+        List<Map<String, Object>> files = new ArrayList<>();
+        List<Map<String, Object>> msgs = messages(request);
+        for (Map<String, Object> msg : msgs) {
+            if (!"user".equals(msg.get("role"))) continue;
+            Object content = msg.get("content");
+            if (content instanceof List<?> contentList) {
+                for (int i = 0; i < contentList.size(); i++) {
+                    Object item = contentList.get(i);
+                    if (item instanceof Map<?, ?> part) {
+                        Map<?, ?> partMap = (Map<?, ?>) part;
+                        if ("image_url".equals(String.valueOf(partMap.get("type")))) {
+                            Object imageUrlObj = partMap.get("image_url");
+                            String imageUrl = "";
+                            if (imageUrlObj instanceof Map<?, ?> imageUrlMap) {
+                                Object urlVal = imageUrlMap.get("url");
+                                imageUrl = urlVal == null ? "" : String.valueOf(urlVal);
+                            } else if (imageUrlObj != null) {
+                                imageUrl = String.valueOf(imageUrlObj);
+                            }
+                            if (!imageUrl.isBlank()) {
+                                String fileId = uuid();
+                                files.add(Map.of(
+                                    "type", "image",
+                                    "id", fileId,
+                                    "url", imageUrl,
+                                    "file_type", "image/png",
+                                    "file_class", "vision",
+                                    "name", "image_" + i + "_" + System.currentTimeMillis() + ".png",
+                                    "status", "uploaded",
+                                    "progress", 0
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return files;
     }
 
     private String uuid() {

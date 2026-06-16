@@ -38,6 +38,8 @@ const MODEL_ALIASES: Record<string, string> = {
   'qwen3-vl': 'qwen3-vl-235b-a22b',
   'qwen3-omni': 'qwen3-omni-flash',
   'qwen2.5': 'qwen2.5-max',
+  'qwen-image': 'qwen3.7-plus',
+  'qwen-video': 'qwen3.7-plus',
 }
 
 interface QwenAiMessage {
@@ -55,6 +57,8 @@ interface ChatCompletionRequest {
   enable_thinking?: boolean
   thinking_budget?: number
   chatId?: string
+  /** Image/video generation aspect ratio */
+  size?: string
 }
 
 function uuid(): string {
@@ -148,7 +152,16 @@ export class QwenAiAdapter {
   mapModel(openaiModel: string): string {
     let model = openaiModel
     let forceThinking: boolean | undefined
-    
+    let chatType: string | undefined
+
+    // Detect image/video generation model aliases
+    const lowerOriginal = model.toLowerCase()
+    if (lowerOriginal === 'qwen-image' || lowerOriginal.includes('t2i')) {
+      chatType = 't2i'
+    } else if (lowerOriginal === 'qwen-video' || lowerOriginal.includes('t2v')) {
+      chatType = 't2v'
+    }
+
     if (model.endsWith('-thinking')) {
       forceThinking = true
       model = model.slice(0, -9)
@@ -158,7 +171,8 @@ export class QwenAiAdapter {
     }
     
     ;(this as any)._forceThinking = forceThinking
-    
+    ;(this as any)._chatType = chatType
+
     const lowerModel = model.toLowerCase()
     
     if (MODEL_ALIASES[lowerModel]) {
@@ -176,13 +190,13 @@ export class QwenAiAdapter {
     return model
   }
 
-  async createChat(modelId: string, title: string = 'New Chat'): Promise<string> {
+  async createChat(modelId: string, chatType: string = 't2t', title: string = 'New Chat'): Promise<string> {
     const url = `${QWEN_AI_BASE}/api/v2/chats/new`
     const payload = {
       title,
       models: [modelId],
       chat_mode: 'normal',
-      chat_type: 't2t',
+      chat_type: chatType,
       timestamp: Date.now(),
       project_id: '',
     }
@@ -258,6 +272,8 @@ export class QwenAiAdapter {
     response: AxiosResponse
     chatId: string
     parentId: string | null
+    chatType: string
+    taskId?: string
   }> {
     const authCookie = this.getAuthCookie()
     if (!authCookie) {
@@ -284,25 +300,87 @@ export class QwenAiAdapter {
       forceThinking = (this as any)._forceThinking
     }
 
-    // Always create a new chat (single-turn mode only)
-    const chatId = await this.createChat(modelId, 'OpenAI_API_Chat')
-    console.log('[QwenAI] Created new chat:', chatId)
+    // Determine chat_type from model
+    const chatType: string = (this as any)._chatType || 't2t'
 
     const messages = request.messages
-    
+
     // Extract system message and user message
     let systemContent = ''
     let userContent = ''
-    
+
+    // Also extract image files from multimodal messages for t2i/i2v
+    const extractedFiles: any[] = []
+    let hasImageReference = false
+
     // Single-turn mode: extract all messages
     for (const msg of messages) {
       if (msg.role === 'system') {
         systemContent += (systemContent ? '\n\n' : '') + msg.content
       } else if (msg.role === 'user') {
-        userContent = msg.content
+        const content = msg.content
+        if (typeof content === 'string') {
+          userContent = content
+        } else if (Array.isArray(content)) {
+          // multimodal: array of content parts
+          const textParts: string[] = []
+          for (let i = 0; i < content.length; i++) {
+            const part = content[i] as any
+            if (part.type === 'image_url' && part.image_url?.url) {
+              hasImageReference = true
+              const imageUrl = part.image_url.url
+              const fileId = uuid()
+              const fileName = `image_${i}_${Date.now()}.png`
+              extractedFiles.push({
+                id: fileId,
+                name: fileName,
+                file_type: 'image/png',
+                type: 'image',
+                file_class: 'vision',
+                url: imageUrl,
+                file: {
+                  created_at: Date.now(),
+                  data: {},
+                  filename: fileName,
+                  hash: null,
+                  id: fileId,
+                  user_id: '',
+                  meta: { name: fileName, size: 0, content_type: 'image/png' },
+                  update_at: Date.now(),
+                  lastModified: Date.now(),
+                  name: fileName,
+                  webkitRelativePath: '',
+                  size: 0,
+                  type: 'image/png',
+                },
+                collection_name: '',
+                progress: 0,
+                status: 'complete',
+                greenNet: 'success',
+                error: '',
+                itemId: uuid(),
+                showType: 'image',
+                uploadTaskId: uuid(),
+              })
+            } else if (typeof part === 'string') {
+              textParts.push(part)
+            } else if (part.type === 'text' && part.text) {
+              textParts.push(part.text)
+            }
+          }
+          userContent = textParts.join('\n')
+        }
       }
     }
-    
+
+    // video model with image reference → switch to i2v
+    const effectiveChatType = (chatType === 't2v' && hasImageReference) ? 'i2v' : chatType
+    const isVideo = effectiveChatType === 't2v' || effectiveChatType === 'i2v'
+
+    // Always create a new chat (single-turn mode only)
+    const chatId = await this.createChat(modelId, effectiveChatType, 'OpenAI_API_Chat')
+    console.log('[QwenAI] Created new chat:', chatId, 'type:', effectiveChatType)
+
     // If system prompt exists, prepend it to user content
     if (systemContent) {
       userContent = `${systemContent}\n\nUser: ${userContent}`
@@ -338,8 +416,8 @@ export class QwenAiAdapter {
       featureConfig.thinking_budget = request.thinking_budget
     }
 
-    const payload = {
-      stream: true,
+    const payload: Record<string, any> = {
+      stream: !isVideo,  // video uses non-streaming
       version: '2.1',
       incremental_output: true,
       chat_id: chatId,
@@ -354,17 +432,20 @@ export class QwenAiAdapter {
           role: 'user',
           content: userContent,
           user_action: 'chat',
-          files: [],
+          files: extractedFiles,
           timestamp: ts,
           models: [modelId],
-          chat_type: 't2t',
+          chat_type: effectiveChatType,
           feature_config: featureConfig,
-          extra: { meta: { subChatType: 't2t' } },
-          sub_chat_type: 't2t',
+          extra: { meta: { subChatType: effectiveChatType, ...(request.size ? { size: request.size } : {}) } },
+          sub_chat_type: effectiveChatType,
           parent_id: null,
         },
       ],
       timestamp: ts,
+    }
+    if (request.size) {
+      payload.size = request.size
     }
 
     const url = `${QWEN_AI_BASE}/api/v2/chat/completions?chat_id=${chatId}`
@@ -379,18 +460,151 @@ export class QwenAiAdapter {
         ...this.getHeaders('completion', chatId),
         'x-accel-buffering': 'no',
       },
-      responseType: 'stream',
-      timeout: 120000,
+      responseType: isVideo ? 'json' : 'stream',
+      timeout: 300000,
     })
 
     console.log('[QwenAI] Response status:', response.status)
     console.log('[QwenAI] Response headers:', JSON.stringify(response.headers, null, 2))
 
+    // Extract taskId from video response
+    let taskId: string | undefined
+    if (isVideo && response.data) {
+      try {
+        const messages = response.data?.data?.messages
+        if (messages && messages.length > 0) {
+          taskId = messages[0]?.extra?.wanx?.task_id || ''
+        }
+        console.log('[QwenAI] Video task ID:', taskId)
+      } catch {
+        console.error('[QwenAI] Failed to extract video task ID')
+      }
+    }
+
     return {
       response,
       chatId,
       parentId: null,
+      chatType: effectiveChatType,
+      taskId,
     }
+  }
+
+  /**
+   * Poll video generation task status and stream results.
+   * Used for t2v (text-to-video) and i2v (image-to-video).
+   */
+  async pollVideoTask(taskId: string, model: string, chatId: string, onEnd?: (chatId: string) => void): Promise<PassThrough> {
+    const transStream = new PassThrough()
+    const created = Math.floor(Date.now() / 1000)
+    let pollCount = 0
+    const maxPolls = 300
+    const pollInterval = 1000
+    let done = false
+
+    const sendChunk = (data: object) => {
+      if (!done) {
+        transStream.write(`data: ${JSON.stringify(data)}\n\n`)
+      }
+    }
+
+    const endStream = (lastChunk?: object) => {
+      if (done) return
+      done = true
+      if (lastChunk) {
+        transStream.write(`data: ${JSON.stringify(lastChunk)}\n\n`)
+      }
+      transStream.end('data: [DONE]\n\n')
+      if (onEnd && chatId) {
+        onEnd(chatId)
+      }
+    }
+
+    const poll = async () => {
+      try {
+        // Send initial role chunk
+        sendChunk({
+          id: chatId,
+          model,
+          object: 'chat.completion.chunk',
+          choices: [{ index: 0, delta: { role: 'assistant', content: '' }, finish_reason: null }],
+          created,
+        })
+
+        while (pollCount < maxPolls && !done) {
+          await new Promise(resolve => setTimeout(resolve, pollInterval))
+          pollCount++
+
+          const url = `${QWEN_AI_BASE}/api/v1/tasks/status/${taskId}`
+          const response = await this.axiosInstance.get(url, {
+            headers: this.getHeaders(),
+            timeout: 10000,
+          })
+
+          const data = response.data
+          const taskStatus = data.task_status
+          console.log(`[QwenAI] Video poll #${pollCount}: status=${taskStatus}`)
+
+          if (taskStatus === 'success') {
+            const videoUrl = data.content || ''
+            if (videoUrl) {
+              sendChunk({
+                id: chatId,
+                model,
+                object: 'chat.completion.chunk',
+                choices: [{ index: 0, delta: { content: videoUrl }, finish_reason: null }],
+                created,
+              })
+            }
+            endStream({
+              id: chatId,
+              model,
+              object: 'chat.completion.chunk',
+              choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+              created,
+            })
+            return
+          }
+
+          if (taskStatus === 'failed' || taskStatus === 'error') {
+            sendChunk({
+              id: chatId,
+              model,
+              object: 'chat.completion.chunk',
+              choices: [{
+                index: 0,
+                delta: { content: `[Video generation failed: ${data.message || 'Unknown error'}]` },
+                finish_reason: 'error',
+              }],
+              created,
+            })
+            endStream()
+            return
+          }
+        }
+
+        // Timeout
+        console.log(`[QwenAI] Video polling timeout after ${maxPolls} polls`)
+        sendChunk({
+          id: chatId,
+          model,
+          object: 'chat.completion.chunk',
+          choices: [{
+            index: 0,
+            delta: { content: '[Video generation timed out]' },
+            finish_reason: 'stop',
+          }],
+          created,
+        })
+        endStream()
+      } catch (err) {
+        console.error('[QwenAI] Video polling error:', err)
+        endStream()
+      }
+    }
+
+    poll()
+    return transStream
   }
 
   static isQwenAiProvider(provider: Provider): boolean {
@@ -608,13 +822,28 @@ export class QwenAiStreamHandler {
                 transStream.write(`data: ${JSON.stringify(chunk)}\n\n`)
                 console.log('[QwenAI] Content chunk written')
               }
+            } else if (phase === 'image_gen') {
+              if (!initialChunkSent) {
+                sendInitialChunk()
+              }
+              if (content) {
+                console.log('[QwenAI] Sending image_gen content (image URL)')
+                const chunk = {
+                  id: this.responseId || this.chatId,
+                  model: this.model,
+                  object: 'chat.completion.chunk',
+                  choices: [{ index: 0, delta: { content }, finish_reason: null }],
+                  created: this.created,
+                }
+                transStream.write(`data: ${JSON.stringify(chunk)}\n\n`)
+              }
             } else if (phase === null && content) {
               if (!initialChunkSent) {
                 sendInitialChunk()
               }
               // Accumulate content for tool call detection
               this.content += content
-              
+
               const chunk = {
                 id: this.responseId || this.chatId,
                 model: this.model,
@@ -625,7 +854,7 @@ export class QwenAiStreamHandler {
               transStream.write(`data: ${JSON.stringify(chunk)}\n\n`)
             }
 
-            if (status === 'finished' && (phase === 'answer' || phase === null)) {
+            if (status === 'finished' && (phase === 'answer' || phase === null || phase === 'image_gen')) {
               // Check for tool calls before sending stop
               if (hasToolUse(this.content)) {
                 console.log('[QwenAI] Found tool_use in stream, sending tool_calls')
@@ -751,6 +980,16 @@ export class QwenAiStreamHandler {
                     this.onEnd(this.chatId)
                   }
 
+                  resolveOnce(data)
+                }
+              } else if (phase === 'image_gen') {
+                if (content) {
+                  data.choices[0].message.content += content
+                }
+                if (status === 'finished') {
+                  if (this.onEnd && this.chatId) {
+                    this.onEnd(this.chatId)
+                  }
                   resolveOnce(data)
                 }
               } else if (phase === null && content) {

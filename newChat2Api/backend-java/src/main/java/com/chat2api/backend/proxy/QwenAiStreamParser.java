@@ -87,7 +87,7 @@ final class QwenAiStreamParser {
                 if (nextSummary.length() > summary.length()) {
                     summary = nextSummary;
                 }
-            } else if ("answer".equals(phase) || (phase.isBlank() && !text.isBlank())) {
+            } else if ("answer".equals(phase) || "image_gen".equals(phase) || (phase.isBlank() && !text.isBlank())) {
                 content.append(text);
                 if ("finished".equals(status)) {
                     finishReason = string(delta.get("finish_reason"));

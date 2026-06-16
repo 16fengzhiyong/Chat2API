@@ -63,6 +63,9 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
             QwenAiSessionStore.State state = sessionStore.load(request, options.recordMode(), chatMode, chatType);
             String chatId = state.hasChat() ? state.chatId() : createChat(modelId, chatMode, chatType, authCookie);
             String parentId = state.hasChat() ? state.parentId() : "";
+
+            boolean isVideo = protocol.isVideoChatType(chatType);
+
             ResponseEntity<String> response = post(
                     QwenAiProtocol.BASE_URL + "/api/v2/chat/completions?chat_id=" + chatId,
                     protocol.completionBody(request, modelId, chatId, parentId, chatMode, thinkingMode, chatType),
@@ -74,6 +77,22 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
                 return ForwardResult.fail(response.getStatusCode().value(), response.getBody() == null ? "Qwen AI request failed" : response.getBody());
             }
             String upstream = response.getBody() == null ? "" : response.getBody();
+
+            // Video: poll task and return result
+            if (isVideo) {
+                String taskId = protocol.parseVideoTaskId(upstream);
+                if (taskId.isBlank()) {
+                    return ForwardResult.fail(502, "Failed to extract video task ID");
+                }
+                String videoResult = pollVideoTask(taskId, authCookie);
+                if (videoResult.startsWith("error:")) {
+                    String errorMsg = videoResult.substring(6);
+                    return ForwardResult.fail(502, "Video generation failed: " + errorMsg);
+                }
+                return ForwardResult.ok(200, MediaType.APPLICATION_JSON_VALUE, buildVideoJson(modelId, videoResult));
+            }
+
+            // Text / Image: parse SSE stream
             QwenAiStreamParser.ParsedStream parsed = streamParser.parsed(upstream, chatId);
             sessionStore.save(request, options.recordMode(), chatMode, chatType, chatId, parsed.responseId());
             boolean stream = Boolean.TRUE.equals(request.get("stream"));
@@ -126,6 +145,55 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
         );
     }
 
+    private String pollVideoTask(String taskId, String authCookie) {
+        int maxPolls = 300;
+        int pollInterval = 1000;
+        for (int i = 0; i < maxPolls; i++) {
+            try {
+                Thread.sleep(pollInterval);
+                ResponseEntity<String> response = restTemplate.exchange(
+                        URI.create(protocol.taskStatusUrl(taskId)),
+                        HttpMethod.GET,
+                        new HttpEntity<>(protocol.headers(authCookie, "default", null)),
+                        String.class
+                );
+                String body = response.getBody();
+                if (body == null) continue;
+                Map<String, Object> parsed = objectMapper.readValue(body, new TypeReference<>() {});
+                String status = parsed.get("task_status") == null ? "" : String.valueOf(parsed.get("task_status"));
+                if ("success".equals(status)) {
+                    return String.valueOf(parsed.getOrDefault("content", ""));
+                }
+                if ("failed".equals(status) || "error".equals(status)) {
+                    return "error:" + String.valueOf(parsed.getOrDefault("message", "Unknown error"));
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return "error:Polling interrupted";
+            } catch (Exception e) {
+                return "error:" + e.getMessage();
+            }
+        }
+        return "error:Video generation timed out after 5 minutes";
+    }
+
+    private String buildVideoJson(String model, String videoUrl) throws Exception {
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("role", "assistant");
+        message.put("content", videoUrl);
+        Map<String, Object> choice = new LinkedHashMap<>();
+        choice.put("index", 0);
+        choice.put("message", message);
+        choice.put("finish_reason", "stop");
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("id", "video-" + System.currentTimeMillis());
+        response.put("object", "chat.completion");
+        response.put("created", Instant.now().getEpochSecond());
+        response.put("model", model);
+        response.put("choices", List.of(choice));
+        return objectMapper.writeValueAsString(response);
+    }
+
     @Override
     public void forwardStreaming(ProviderEntity provider, AccountEntity account,
                                   Map<String, String> credentials, Map<String, Object> request,
@@ -145,6 +213,30 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
         String chatId = state.hasChat() ? state.chatId() : createChat(modelId, chatMode, chatType, authCookie);
         String parentId = state.hasChat() ? state.parentId() : "";
 
+        // Video: non-streaming request → poll → stream SSE
+        if (protocol.isVideoChatType(chatType)) {
+            ResponseEntity<String> response = post(
+                    QwenAiProtocol.BASE_URL + "/api/v2/chat/completions?chat_id=" + chatId,
+                    protocol.completionBody(request, modelId, chatId, parentId, chatMode, thinkingMode, chatType),
+                    authCookie,
+                    "completion",
+                    chatId
+            );
+            if (!response.getStatusCode().is2xxSuccessful()) {
+                writer.writeErrorAndDone("Qwen AI request failed: HTTP " + response.getStatusCode().value());
+                return;
+            }
+            String upstream = response.getBody() == null ? "" : response.getBody();
+            String taskId = protocol.parseVideoTaskId(upstream);
+            if (taskId.isBlank()) {
+                writer.writeErrorAndDone("Failed to extract video task ID");
+                return;
+            }
+            pollVideoTaskStreaming(taskId, authCookie, actualModel, chatId, writer, onComplete);
+            return;
+        }
+
+        // Text / Image: streaming request
         HttpHeaders headers = protocol.headers(authCookie, "completion", chatId);
         byte[] bodyBytes = objectMapper.writeValueAsBytes(
                 protocol.completionBody(request, modelId, chatId, parentId, chatMode, thinkingMode, chatType));
@@ -154,9 +246,9 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
         StringBuilder content = new StringBuilder();
         StringBuilder reasoning = new StringBuilder();
         StringBuilder summaryReasoning = new StringBuilder();
-        String[] responseId = {chatId};
+        String[] responseIdArr = {chatId};
         boolean[] roleEmitted = {false};
-        String[] finishReason = {"stop"};
+        String[] finishReasonArr = {"stop"};
 
         try {
             restTemplate.execute(URI.create(url), HttpMethod.POST,
@@ -164,9 +256,9 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
                         req.getHeaders().putAll(headers);
                         req.getBody().write(bodyBytes);
                     },
-                    response -> {
+                    resp -> {
                         try (BufferedReader reader = new BufferedReader(
-                                new InputStreamReader(response.getBody(), StandardCharsets.UTF_8))) {
+                                new InputStreamReader(resp.getBody(), StandardCharsets.UTF_8))) {
                             StringBuilder eventBuf = new StringBuilder();
                             String line;
                             while ((line = reader.readLine()) != null) {
@@ -178,7 +270,7 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
                                     if ("[DONE]".equals(eventData)) break;
                                     try {
                                         processQwenChunk(eventData, writer, content, reasoning, summaryReasoning,
-                                                responseId, roleEmitted, finishReason, actualModel, created);
+                                                responseIdArr, roleEmitted, finishReasonArr, actualModel, created);
                                     } catch (Exception e) {
                                         throw new IOException(e.getMessage(), e);
                                     }
@@ -187,7 +279,7 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
                             if (eventBuf.length() > 0 && !"[DONE]".equals(eventBuf.toString())) {
                                 try {
                                     processQwenChunk(eventBuf.toString(), writer, content, reasoning, summaryReasoning,
-                                            responseId, roleEmitted, finishReason, actualModel, created);
+                                            responseIdArr, roleEmitted, finishReasonArr, actualModel, created);
                                 } catch (Exception ignored) {}
                             }
                         }
@@ -198,11 +290,61 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
             return;
         }
 
-        writer.writeEvent(sseChunk(responseId[0], actualModel, created, Map.of(), finishReason[0]));
+        writer.writeEvent(sseChunk(responseIdArr[0], actualModel, created, Map.of(), finishReasonArr[0]));
         writer.writeDone();
-        sessionStore.save(request, options.recordMode(), chatMode, chatType, chatId, responseId[0]);
+        sessionStore.save(request, options.recordMode(), chatMode, chatType, chatId, responseIdArr[0]);
         String finalReasoning = reasoning.isEmpty() ? summaryReasoning.toString() : reasoning.toString();
-        onComplete.accept(buildCompletionJson(actualModel, responseId[0], created, content.toString(), finalReasoning));
+        onComplete.accept(buildCompletionJson(actualModel, responseIdArr[0], created, content.toString(), finalReasoning));
+    }
+
+    private void pollVideoTaskStreaming(String taskId, String authCookie, String model, String chatId,
+                                         SseStreamWriter writer, Consumer<String> onComplete) throws Exception {
+        long created = Instant.now().getEpochSecond();
+        writer.writeEvent(sseChunk(chatId, model, created, Map.of("role", "assistant", "content", ""), null));
+
+        int maxPolls = 300;
+        int pollInterval = 1000;
+        for (int i = 0; i < maxPolls; i++) {
+            try {
+                Thread.sleep(pollInterval);
+                ResponseEntity<String> response = restTemplate.exchange(
+                        URI.create(protocol.taskStatusUrl(taskId)),
+                        HttpMethod.GET,
+                        new HttpEntity<>(protocol.headers(authCookie, "default", null)),
+                        String.class
+                );
+                String body = response.getBody();
+                if (body == null) continue;
+                Map<String, Object> parsed = objectMapper.readValue(body, new TypeReference<>() {});
+                String status = parsed.get("task_status") == null ? "" : String.valueOf(parsed.get("task_status"));
+                if ("success".equals(status)) {
+                    String videoUrl = String.valueOf(parsed.getOrDefault("content", ""));
+                    if (!videoUrl.isBlank()) {
+                        writer.writeEvent(sseChunk(chatId, model, created, Map.of("content", videoUrl), null));
+                    }
+                    writer.writeEvent(sseChunk(chatId, model, created, Map.of(), "stop"));
+                    writer.writeDone();
+                    onComplete.accept(buildCompletionJson(model, chatId, created, videoUrl, ""));
+                    return;
+                }
+                if ("failed".equals(status) || "error".equals(status)) {
+                    String msg = String.valueOf(parsed.getOrDefault("message", "Unknown error"));
+                    writer.writeEvent(sseChunk(chatId, model, created, Map.of("content", "[Video generation failed: " + msg + "]"), "error"));
+                    writer.writeDone();
+                    return;
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                writer.writeErrorAndDone("Video polling interrupted");
+                return;
+            } catch (Exception e) {
+                if (e instanceof java.io.IOException) throw (java.io.IOException) e;
+                writer.writeErrorAndDone("Video polling error: " + e.getMessage());
+                return;
+            }
+        }
+        writer.writeEvent(sseChunk(chatId, model, created, Map.of("content", "[Video generation timed out]"), "stop"));
+        writer.writeDone();
     }
 
     @SuppressWarnings("unchecked")
@@ -247,7 +389,7 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
                     writer.writeEvent(sseChunk(responseId[0], model, created, Map.of("reasoning_content", deltaText), null));
                 }
             }
-        } else if (("answer".equals(phase) || (phase.isBlank() && !text.isBlank())) && !text.isBlank()) {
+        } else if (("answer".equals(phase) || "image_gen".equals(phase) || (phase.isBlank() && !text.isBlank())) && !text.isBlank()) {
             content.append(text);
             writer.writeEvent(sseChunk(responseId[0], model, created, Map.of("content", text), null));
             if ("finished".equals(status)) {

@@ -817,15 +817,16 @@ export class RequestForwarder {
   ): Promise<ForwardResult> {
     try {
       const transformed = this.transformRequestForPromptToolUse(request, provider)
-      
+
       const adapter = new QwenAiAdapter(provider, account)
-      const { response, chatId, parentId } = await adapter.chatCompletion({
+      const { response, chatId, parentId, chatType, taskId } = await adapter.chatCompletion({
         model: actualModel,
         originalModel: request.model,
         messages: transformed.messages as any,
         stream: request.stream,
         temperature: request.temperature,
         enable_thinking: !!request.reasoning_effort,
+        size: request.size,
       })
 
       const latency = Date.now() - startTime
@@ -837,6 +838,27 @@ export class RequestForwarder {
           status: response.status,
           error: errorMessage,
           latency,
+        }
+      }
+
+      // Video generation: poll task and return stream
+      if ((chatType === 't2v' || chatType === 'i2v') && taskId) {
+        console.log('[QwenAI] Video generation mode, taskId:', taskId)
+
+        const onEnd = shouldDeleteSession()
+          ? async (cid: string) => { await adapter.deleteChat(cid) }
+          : undefined
+
+        const pollingStream = await adapter.pollVideoTask(taskId, actualModel, chatId, onEnd)
+
+        return {
+          success: true,
+          status: 200,
+          headers: { 'content-type': 'text/event-stream; charset=utf-8' },
+          stream: pollingStream,
+          skipTransform: true,
+          latency,
+          providerSessionId: chatId,
         }
       }
 
