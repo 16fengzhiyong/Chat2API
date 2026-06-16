@@ -88,14 +88,25 @@ public class DeepSeekStreamParser {
             }
             Object path = event.get("p");
             Object value = event.get("v");
+            if (path != null) {
+                String pathValue = String.valueOf(path);
+                if (pathValue.contains("fragments/-1/content") && !"".equals(currentPath)) {
+                    currentPath = currentPath;
+                }
+            }
             if (value instanceof Map<?, ?> valueMap && valueMap.get("response") instanceof Map<?, ?> response) {
                 Object thinkingEnabled = response.get("thinking_enabled");
                 if (thinkingEnabled != null) {
                     currentPath = Boolean.TRUE.equals(thinkingEnabled) ? "thinking" : "content";
                 }
-                appendFragments(response.get("fragments"), content, reasoning);
+                String fragmentPath = appendFragments(response.get("fragments"), content, reasoning);
+                if (!fragmentPath.isBlank()) {
+                    currentPath = fragmentPath;
+                }
             } else if ("response/fragments".equals(path)) {
                 currentPath = appendFragments(value, content, reasoning);
+            } else if (path != null && String.valueOf(path).contains("response/fragments") && String.valueOf(path).contains("/content")) {
+                currentPath = fragmentPathFromIndexedPath(String.valueOf(path), currentPath);
             } else if ("response/search_results".equals(path)) {
                 updateSearchResults(value, event.get("o"), searchResults);
             } else if ("response".equals(path) && value instanceof List<?> operations) {
@@ -136,6 +147,16 @@ public class DeepSeekStreamParser {
             }
         }
         return path;
+    }
+
+    private String fragmentPathFromIndexedPath(String path, String currentPath) {
+        if (path == null || !path.contains("response/fragments")) {
+            return currentPath;
+        }
+        if (path.contains("/-1/")) {
+            return currentPath == null || currentPath.isBlank() ? "content" : currentPath;
+        }
+        return currentPath;
     }
 
     private void appendValue(Object value, String currentPath, StringBuilder content, StringBuilder reasoning) {
@@ -272,9 +293,14 @@ public class DeepSeekStreamParser {
                 if (thinkingEnabled != null) {
                     ctx.currentPath = Boolean.TRUE.equals(thinkingEnabled) ? "thinking" : "content";
                 }
-                appendFragments(response.get("fragments"), ctx.content, ctx.reasoning);
+                String fragmentPath = appendFragments(response.get("fragments"), ctx.content, ctx.reasoning);
+                if (!fragmentPath.isBlank()) {
+                    ctx.currentPath = fragmentPath;
+                }
             } else if ("response/fragments".equals(path)) {
                 ctx.currentPath = appendFragments(value, ctx.content, ctx.reasoning);
+            } else if (path != null && String.valueOf(path).contains("response/fragments") && String.valueOf(path).contains("/content")) {
+                ctx.currentPath = fragmentPathFromIndexedPath(String.valueOf(path), ctx.currentPath);
             } else if ("response".equals(path) && value instanceof List<?> operations) {
                 for (Object operation : operations) {
                     if (operation instanceof Map<?, ?> map &&

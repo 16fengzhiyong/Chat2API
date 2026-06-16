@@ -8,6 +8,8 @@ plugins {
 group = 'com.chat2api'
 version = '1.0.0'
 
+def deepSeekWasmFile = file('../../sha3_wasm_bg.7b9ca65ddd.wasm')
+
 java {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
@@ -31,6 +33,12 @@ dependencies {
     implementation 'org.apache.httpcomponents.client5:httpclient5'
     runtimeOnly 'com.mysql:mysql-connector-j'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+tasks.named('processResources') {
+    if (deepSeekWasmFile.isFile()) {
+        from(deepSeekWasmFile)
+    }
 }
 
 tasks.named('test') {

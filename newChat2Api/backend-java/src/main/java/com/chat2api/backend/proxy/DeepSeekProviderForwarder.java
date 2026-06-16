@@ -61,7 +61,7 @@ public class DeepSeekProviderForwarder implements ProviderForwarder {
             DeepSeekChatOptions options = DeepSeekChatOptions.resolve(request, prompt);
             Map<String, Object> challenge = createChallenge(accessToken, COMPLETION_TARGET_PATH);
             String powResponse = powSolver.solve(challenge);
-            HttpHeaders headers = protocol.headers(accessToken, cookie, "https://chat.deepseek.com/");
+            HttpHeaders headers = protocol.headers(accessToken, cookie, DeepSeekProtocol.sessionReferer(sessionId));
             headers.set("X-Ds-Pow-Response", powResponse);
             ResponseEntity<String> response = restTemplate.exchange(
                     URI.create(DeepSeekProtocol.BASE_URL + "/v0/chat/completion"),
@@ -100,7 +100,7 @@ public class DeepSeekProviderForwarder implements ProviderForwarder {
             token = protocol.nested(parsed, "biz_data", "token");
         }
         if (token == null || String.valueOf(token).isBlank()) {
-            throw new IllegalStateException("Failed to acquire DeepSeek token");
+            return refreshToken;
         }
         return String.valueOf(token);
     }
@@ -142,14 +142,12 @@ public class DeepSeekProviderForwarder implements ProviderForwarder {
         DeepSeekChatOptions options = DeepSeekChatOptions.resolve(request, prompt);
         Map<String, Object> challenge = createChallenge(accessToken, COMPLETION_TARGET_PATH);
         String powResponse = powSolver.solve(challenge);
-        HttpHeaders headers = protocol.headers(accessToken, cookie, "https://chat.deepseek.com/");
+        HttpHeaders headers = protocol.headers(accessToken, cookie, DeepSeekProtocol.sessionReferer(sessionId));
         headers.set("X-Ds-Pow-Response", powResponse);
         byte[] bodyBytes = objectMapper.writeValueAsBytes(
                 protocol.completionBody(request, sessionId, prompt, options));
 
-        String model = String.valueOf(request.getOrDefault("model", "")).toLowerCase();
-        boolean thinkingModel = model.contains("think") || model.contains("r1") || model.contains("reasoner") || request.get("reasoning_effort") != null;
-        DeepSeekStreamParser.StreamingContext ctx = new DeepSeekStreamParser.StreamingContext(thinkingModel);
+        DeepSeekStreamParser.StreamingContext ctx = new DeepSeekStreamParser.StreamingContext(options.thinkingEnabled());
         long created = Instant.now().getEpochSecond();
         boolean[] roleEmitted = {false};
 
