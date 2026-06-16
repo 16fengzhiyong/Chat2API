@@ -261,7 +261,39 @@ curl -X POST 'http://服务器IP:8080/v1/chat/completions' \
 
 注意：`enable_thinking` 只覆盖本次请求的思考/快速模式，不会修改管理平台默认配置；Qwen 的自动模式由管理平台默认配置控制。
 
-### 6.4 Completions
+### 6.4 Qwen 搜索模式参数
+
+当请求路由到 Qwen AI Provider 时，可以在请求体中携带 `enable_search` 控制是否使用 Qwen 搜索模式：
+
+| 参数 | 含义 |
+| --- | --- |
+| `enable_search: true` | 使用 Qwen 搜索模式 |
+| `enable_search: false` | 使用 Qwen 普通对话模式 |
+| `search: true` | 等价于 `enable_search: true` |
+| 模型名带 `-search` 后缀 | 使用 Qwen 搜索模式，例如 `Qwen3.6-Plus-search` |
+| 未携带搜索参数 | 使用管理平台中 Qwen 设置的默认搜索模式 |
+
+示例：
+
+```bash
+curl -X POST 'http://服务器IP:8080/v1/chat/completions' \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer c2a_xxx' \
+  -d '{
+    "model": "qwen-plus",
+    "enable_search": true,
+    "messages": [
+      {
+        "role": "user",
+        "content": "搜索并总结今天的 AI 新闻"
+      }
+    ]
+  }'
+```
+
+注意：`enable_search` 只覆盖本次请求的搜索/普通模式，不会修改管理平台默认配置；带 `-search` 后缀的模型名会在转发到 Qwen 前自动还原为真实模型名。
+
+### 6.5 Completions
 
 ```bash
 curl -X POST 'http://服务器IP:8080/v1/completions' \
@@ -275,7 +307,7 @@ curl -X POST 'http://服务器IP:8080/v1/completions' \
 
 后端会把 `prompt` 转成一条 `user` 消息后复用聊天补全流程。
 
-### 6.5 查询模型列表
+### 6.6 查询模型列表
 
 ```bash
 curl 'http://服务器IP:8080/v1/models'

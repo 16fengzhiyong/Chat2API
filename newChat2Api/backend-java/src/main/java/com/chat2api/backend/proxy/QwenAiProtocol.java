@@ -52,10 +52,10 @@ final class QwenAiProtocol {
     String thinkingMode(Map<String, Object> request, String originalModel, String actualModel, QwenAiOptions options) {
         String model = originalModel == null || originalModel.isBlank() ? actualModel : originalModel;
         String lower = model.toLowerCase();
-        if (lower.endsWith("-thinking")) {
+        if (hasModeSuffix(lower, "thinking")) {
             return QwenAiOptions.THINKING_THINKING;
         }
-        if (lower.endsWith("-fast")) {
+        if (hasModeSuffix(lower, "fast")) {
             return QwenAiOptions.THINKING_FAST;
         }
         if (lower.contains("think") || lower.contains("r1")) {
@@ -70,18 +70,31 @@ final class QwenAiProtocol {
         return options.thinkingMode();
     }
 
-    Map<String, Object> newChatBody(String modelId, String chatMode) {
+    String chatType(Map<String, Object> request, String originalModel, String actualModel, QwenAiOptions options) {
+        String model = originalModel == null || originalModel.isBlank() ? actualModel : originalModel;
+        String lower = model.toLowerCase();
+        if (hasModeSuffix(lower, "search")) {
+            return QwenAiOptions.SEARCH_ON;
+        }
+        Object enableSearch = firstPresent(request, "enable_search", "search");
+        if (enableSearch != null) {
+            return truthy(enableSearch) ? QwenAiOptions.SEARCH_ON : "t2t";
+        }
+        return QwenAiOptions.SEARCH_ON.equals(options.searchMode()) ? QwenAiOptions.SEARCH_ON : "t2t";
+    }
+
+    Map<String, Object> newChatBody(String modelId, String chatMode, String chatType) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("title", "OpenAI_API_Chat");
         payload.put("models", List.of(modelId));
         payload.put("chat_mode", chatMode);
-        payload.put("chat_type", "t2t");
+        payload.put("chat_type", chatType);
         payload.put("timestamp", Instant.now().toEpochMilli());
         payload.put("project_id", "");
         return payload;
     }
 
-    Map<String, Object> completionBody(Map<String, Object> request, String modelId, String chatId, String parentId, String chatMode, String thinkingMode) {
+    Map<String, Object> completionBody(Map<String, Object> request, String modelId, String chatId, String parentId, String chatMode, String thinkingMode, String chatType) {
         long timestamp = Instant.now().getEpochSecond();
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("fid", uuid());
@@ -93,10 +106,10 @@ final class QwenAiProtocol {
         message.put("files", List.of());
         message.put("timestamp", timestamp);
         message.put("models", List.of(modelId));
-        message.put("chat_type", "t2t");
-        message.put("feature_config", featureConfig(request, thinkingMode));
-        message.put("extra", meta());
-        message.put("sub_chat_type", "t2t");
+        message.put("chat_type", chatType);
+        message.put("feature_config", featureConfig(request, thinkingMode, chatType));
+        message.put("extra", meta(chatType));
+        message.put("sub_chat_type", chatType);
         message.put("parent_id", blankToNull(parentId));
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("stream", true);
@@ -142,7 +155,7 @@ final class QwenAiProtocol {
         return headers;
     }
 
-    private Map<String, Object> featureConfig(Map<String, Object> request, String thinkingMode) {
+    private Map<String, Object> featureConfig(Map<String, Object> request, String thinkingMode, String chatType) {
         boolean thinking = QwenAiOptions.THINKING_THINKING.equals(thinkingMode) || QwenAiOptions.THINKING_AUTO.equals(thinkingMode);
         Map<String, Object> featureConfig = new LinkedHashMap<>();
         featureConfig.put("thinking_enabled", thinking);
@@ -150,7 +163,7 @@ final class QwenAiProtocol {
         featureConfig.put("research_mode", "normal");
         featureConfig.put("auto_thinking", QwenAiOptions.THINKING_AUTO.equals(thinkingMode));
         featureConfig.put("thinking_mode", upstreamThinkingMode(thinkingMode));
-        featureConfig.put("auto_search", true);
+        featureConfig.put("auto_search", QwenAiOptions.SEARCH_ON.equals(chatType));
         if (QwenAiOptions.THINKING_THINKING.equals(thinkingMode) || QwenAiOptions.THINKING_AUTO.equals(thinkingMode)) {
             featureConfig.put("thinking_format", "summary");
         }
@@ -201,22 +214,53 @@ final class QwenAiProtocol {
         return result;
     }
 
-    private Map<String, Object> meta() {
+    private Map<String, Object> meta(String chatType) {
         Map<String, Object> meta = new LinkedHashMap<>();
-        meta.put("subChatType", "t2t");
+        meta.put("subChatType", chatType);
         Map<String, Object> wrapper = new LinkedHashMap<>();
         wrapper.put("meta", meta);
         return wrapper;
     }
 
     private String stripModeSuffix(String model) {
-        if (model.endsWith("-thinking")) {
-            return model.substring(0, model.length() - 9);
+        String result = model;
+        boolean changed;
+        do {
+            changed = false;
+            for (String suffix : List.of("-thinking", "-fast", "-search")) {
+                if (result.toLowerCase().endsWith(suffix)) {
+                    result = result.substring(0, result.length() - suffix.length());
+                    changed = true;
+                }
+            }
+        } while (changed);
+        return result;
+    }
+
+    private boolean hasModeSuffix(String model, String mode) {
+        for (String part : model.split("-")) {
+            if (mode.equals(part)) {
+                return true;
+            }
         }
-        if (model.endsWith("-fast")) {
-            return model.substring(0, model.length() - 5);
+        return false;
+    }
+
+    private Object firstPresent(Map<String, Object> source, String... keys) {
+        for (String key : keys) {
+            if (source.containsKey(key)) {
+                return source.get(key);
+            }
         }
-        return model;
+        return null;
+    }
+
+    private boolean truthy(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        String text = String.valueOf(value);
+        return "true".equalsIgnoreCase(text) || "1".equals(text) || "yes".equalsIgnoreCase(text) || "on".equalsIgnoreCase(text) || "search".equalsIgnoreCase(text);
     }
 
     private String first(Map<String, String> source, String... keys) {

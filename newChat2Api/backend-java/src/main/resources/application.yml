@@ -44,3 +44,7 @@ chat2api:
   proxy:
     request-timeout-ms: ${CHAT2API_REQUEST_TIMEOUT_MS:60000}
     retry-count: ${CHAT2API_RETRY_COUNT:3}
+
+logging:
+  level:
+    root: DEBUG

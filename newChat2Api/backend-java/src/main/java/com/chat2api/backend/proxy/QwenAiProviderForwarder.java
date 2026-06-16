@@ -59,12 +59,13 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
             QwenAiOptions options = QwenAiOptions.from(provider);
             String thinkingMode = protocol.thinkingMode(request, originalModel, actualModel, options);
             String chatMode = options.chatMode();
-            QwenAiSessionStore.State state = sessionStore.load(request, options.recordMode());
-            String chatId = state.hasChat() ? state.chatId() : createChat(modelId, chatMode, authCookie);
+            String chatType = protocol.chatType(request, originalModel, actualModel, options);
+            QwenAiSessionStore.State state = sessionStore.load(request, options.recordMode(), chatMode, chatType);
+            String chatId = state.hasChat() ? state.chatId() : createChat(modelId, chatMode, chatType, authCookie);
             String parentId = state.hasChat() ? state.parentId() : "";
             ResponseEntity<String> response = post(
                     QwenAiProtocol.BASE_URL + "/api/v2/chat/completions?chat_id=" + chatId,
-                    protocol.completionBody(request, modelId, chatId, parentId, chatMode, thinkingMode),
+                    protocol.completionBody(request, modelId, chatId, parentId, chatMode, thinkingMode, chatType),
                     authCookie,
                     "completion",
                     chatId
@@ -74,7 +75,7 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
             }
             String upstream = response.getBody() == null ? "" : response.getBody();
             QwenAiStreamParser.ParsedStream parsed = streamParser.parsed(upstream, chatId);
-            sessionStore.save(request, options.recordMode(), chatId, parsed.responseId());
+            sessionStore.save(request, options.recordMode(), chatMode, chatType, chatId, parsed.responseId());
             boolean stream = Boolean.TRUE.equals(request.get("stream"));
             return stream
                     ? ForwardResult.ok(200, "text/event-stream; charset=utf-8", streamParser.toOpenAiStream(parsed, actualModel))
@@ -86,10 +87,10 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
         }
     }
 
-    private String createChat(String modelId, String chatMode, String authCookie) throws Exception {
+    private String createChat(String modelId, String chatMode, String chatType, String authCookie) throws Exception {
         ResponseEntity<String> response = post(
                 QwenAiProtocol.BASE_URL + "/api/v2/chats/new",
-                protocol.newChatBody(modelId, chatMode),
+                protocol.newChatBody(modelId, chatMode, chatType),
                 authCookie,
                 "new-chat",
                 null
@@ -139,13 +140,14 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
         QwenAiOptions options = QwenAiOptions.from(provider);
         String thinkingMode = protocol.thinkingMode(request, originalModel, actualModel, options);
         String chatMode = options.chatMode();
-        QwenAiSessionStore.State state = sessionStore.load(request, options.recordMode());
-        String chatId = state.hasChat() ? state.chatId() : createChat(modelId, chatMode, authCookie);
+        String chatType = protocol.chatType(request, originalModel, actualModel, options);
+        QwenAiSessionStore.State state = sessionStore.load(request, options.recordMode(), chatMode, chatType);
+        String chatId = state.hasChat() ? state.chatId() : createChat(modelId, chatMode, chatType, authCookie);
         String parentId = state.hasChat() ? state.parentId() : "";
 
         HttpHeaders headers = protocol.headers(authCookie, "completion", chatId);
         byte[] bodyBytes = objectMapper.writeValueAsBytes(
-                protocol.completionBody(request, modelId, chatId, parentId, chatMode, thinkingMode));
+                protocol.completionBody(request, modelId, chatId, parentId, chatMode, thinkingMode, chatType));
         String url = QwenAiProtocol.BASE_URL + "/api/v2/chat/completions?chat_id=" + chatId;
 
         long created = Instant.now().getEpochSecond();
@@ -198,7 +200,7 @@ public class QwenAiProviderForwarder implements ProviderForwarder {
 
         writer.writeEvent(sseChunk(responseId[0], actualModel, created, Map.of(), finishReason[0]));
         writer.writeDone();
-        sessionStore.save(request, options.recordMode(), chatId, responseId[0]);
+        sessionStore.save(request, options.recordMode(), chatMode, chatType, chatId, responseId[0]);
         String finalReasoning = reasoning.isEmpty() ? summaryReasoning.toString() : reasoning.toString();
         onComplete.accept(buildCompletionJson(actualModel, responseId[0], created, content.toString(), finalReasoning));
     }

@@ -20,7 +20,7 @@ final class QwenAiSessionStore {
         this.objectMapper = objectMapper;
     }
 
-    State load(Map<String, Object> request, boolean recordMode) {
+    State load(Map<String, Object> request, boolean recordMode, String chatMode, String chatType) {
         if (!recordMode) {
             return State.empty();
         }
@@ -32,11 +32,11 @@ final class QwenAiSessionStore {
                 .map(session -> metadata(session).get("qwenAi"))
                 .filter(Map.class::isInstance)
                 .map(Map.class::cast)
-                .map(this::state)
+                .map(source -> modeState(source, modeKey(chatMode, chatType)))
                 .orElseGet(State::empty);
     }
 
-    void save(Map<String, Object> request, boolean recordMode, String chatId, String parentId) {
+    void save(Map<String, Object> request, boolean recordMode, String chatMode, String chatType, String chatId, String parentId) {
         if (!recordMode || chatId == null || chatId.isBlank() || parentId == null || parentId.isBlank()) {
             return;
         }
@@ -50,13 +50,38 @@ final class QwenAiSessionStore {
         }
         SessionEntity session = found.get();
         Map<String, Object> metadata = metadata(session);
-        Map<String, Object> qwen = new LinkedHashMap<>();
-        qwen.put("chatId", chatId);
-        qwen.put("parentId", parentId);
+        Map<String, Object> qwen = qwenState(metadata.get("qwenAi"));
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("chatId", chatId);
+        state.put("parentId", parentId);
+        qwen.put(modeKey(chatMode, chatType), state);
         metadata.put("qwenAi", qwen);
         session.setMetadataJson(toJson(metadata));
         session.setUpdatedAt(Instant.now());
         sessionRepository.save(session);
+    }
+
+    private State modeState(Map<?, ?> source, String key) {
+        Object value = source.get(key);
+        if (value instanceof Map<?, ?> mode) {
+            return state(mode);
+        }
+        if (source.containsKey("chatId")) {
+            return state(source);
+        }
+        return State.empty();
+    }
+
+    private Map<String, Object> qwenState(Object value) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (value instanceof Map<?, ?> source) {
+            source.forEach((key, item) -> result.put(String.valueOf(key), item));
+        }
+        return result;
+    }
+
+    private String modeKey(String chatMode, String chatType) {
+        return string(chatMode) + ":" + string(chatType);
     }
 
     private State state(Map<?, ?> source) {
