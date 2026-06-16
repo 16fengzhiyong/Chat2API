@@ -8,6 +8,7 @@ import com.chat2api.backend.service.AccountService;
 import com.chat2api.backend.service.AccountValidationService;
 import com.chat2api.backend.service.IdService;
 import com.chat2api.backend.service.ReporterRegistrationCodeService;
+import com.chat2api.backend.support.DeepSeekCredentialSupport;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @RestController
@@ -76,11 +78,12 @@ public class ReporterController {
         if (name.isBlank()) {
             throw new IllegalArgumentException("Account name is required");
         }
+        Map<String, String> credentials = normalizeCredentials(providerId, castStringMap(request.get("credentials")));
         AccountEntity account = accountService.create(
                 providerId,
                 name,
                 request.get("email") == null ? null : String.valueOf(request.get("email")),
-                castStringMap(request.get("credentials")),
+                credentials,
                 request.get("dailyLimit") == null ? null : Long.valueOf(String.valueOf(request.get("dailyLimit")))
         );
         accountValidationService.validate(account.getId());
@@ -105,5 +108,34 @@ public class ReporterController {
         java.util.LinkedHashMap<String, String> result = new java.util.LinkedHashMap<>();
         map.forEach((key, val) -> result.put(String.valueOf(key), val == null ? null : String.valueOf(val)));
         return result;
+    }
+
+    private Map<String, String> normalizeCredentials(String providerId, Map<String, String> credentials) {
+        Map<String, String> base = new LinkedHashMap<>();
+        if (credentials != null) {
+            credentials.forEach((key, value) -> {
+                String text = value == null ? "" : value.trim();
+                if (!text.isBlank()) {
+                    base.put(key, text);
+                }
+            });
+        }
+        if (!"deepseek".equals(providerId)) {
+            return base;
+        }
+        return DeepSeekCredentialSupport.normalize(base);
+    }
+
+    private String stripBearerPrefix(String value) {
+        return value == null ? "" : value.trim().replaceFirst("(?i)^Bearer\\s+", "");
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
     }
 }

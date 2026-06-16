@@ -3,7 +3,9 @@ package com.chat2api.backend.service;
 import com.chat2api.backend.domain.AccountEntity;
 import com.chat2api.backend.domain.AccountStatus;
 import com.chat2api.backend.domain.ProviderEntity;
+import com.chat2api.backend.proxy.DeepSeekProtocol;
 import com.chat2api.backend.repository.ProviderRepository;
+import com.chat2api.backend.support.DeepSeekCredentialSupport;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpEntity;
@@ -147,7 +149,7 @@ public class ProviderMaintenanceService {
         return switch (provider.getVendor()) {
             case "qwen-ai" -> hasAny(credentials, "cookies", "cookie", "token", "accessToken", "apiKey") ? delete(account, "https://chat.qwen.ai/api/v2/chats/", qwenAiHeaders(credentials, null)) : failed(account, "missing_credentials");
             case "zai" -> hasAny(credentials, "token", "accessToken", "access_token") ? delete(account, "https://chat.z.ai/api/v1/chats/", bearerHeaders(credentials, "token", "accessToken", "access_token")) : failed(account, "missing_credentials");
-            case "deepseek" -> hasAny(credentials, "token", "accessToken", "access_token", "apiKey", "refreshToken", "refresh_token") ? clearDeepSeekChats(account, credentials) : failed(account, "missing_credentials");
+            case "deepseek" -> !DeepSeekCredentialSupport.token(credentials).isBlank() ? clearDeepSeekChats(account, credentials) : failed(account, "missing_credentials");
             default -> unsupported(account, "clear_chats_not_supported_for_" + provider.getVendor());
         };
     }
@@ -176,7 +178,7 @@ public class ProviderMaintenanceService {
             String accessToken = deepSeekAccessToken(credentials);
             Map<String, String> accessCredentials = new LinkedHashMap<>();
             accessCredentials.put("token", accessToken);
-            String cookie = first(credentials, "cookie", "cookies");
+            String cookie = DeepSeekCredentialSupport.cookie(credentials);
             if (cookie != null && !cookie.isBlank()) {
                 accessCredentials.put("cookie", cookie);
             }
@@ -214,7 +216,7 @@ public class ProviderMaintenanceService {
             token = nested(parsed, "biz_data", "token");
         }
         if (token == null || String.valueOf(token).isBlank()) {
-            throw new IllegalStateException("Failed to acquire DeepSeek token");
+            return DeepSeekCredentialSupport.token(credentials);
         }
         return String.valueOf(token);
     }
@@ -244,18 +246,15 @@ public class ProviderMaintenanceService {
 
     private HttpHeaders deepSeekHeaders(Map<String, String> credentials) {
         HttpHeaders headers = browserHeaders("https://chat.deepseek.com", "https://chat.deepseek.com/");
-        String token = first(credentials, "token", "accessToken", "access_token", "apiKey", "refreshToken", "refresh_token");
-        String cookie = first(credentials, "cookie", "cookies");
+        DeepSeekProtocol.applyCommonHeaders(headers, "https://chat.deepseek.com/");
+        String token = DeepSeekCredentialSupport.token(credentials);
+        String cookie = DeepSeekCredentialSupport.cookie(credentials);
         if (token != null && !token.isBlank()) {
             headers.setBearerAuth(token.replaceFirst("(?i)^Bearer\\s+", ""));
         }
         if (cookie != null && !cookie.isBlank()) {
             headers.set(HttpHeaders.COOKIE, cookie);
         }
-        headers.set("X-App-Version", "20241129.1");
-        headers.set("X-Client-Locale", "zh-CN");
-        headers.set("X-Client-Platform", "web");
-        headers.set("X-Client-Version", "1.8.0");
         return headers;
     }
 

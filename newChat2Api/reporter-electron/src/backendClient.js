@@ -72,7 +72,11 @@ function createBackendClient(configStore) {
   }
 
   function uploadAccount(payload) {
-    return request('/api/reporter/accounts', { method: 'POST', body: JSON.stringify(payload) })
+    const normalizedPayload = {
+      ...payload,
+      credentials: normalizeProviderCredentials(payload?.providerId, payload?.credentials || {}),
+    }
+    return request('/api/reporter/accounts', { method: 'POST', body: JSON.stringify(normalizedPayload) })
   }
 
   return { register, heartbeat, uploadAccount }
@@ -111,6 +115,107 @@ function errorMessage(payload, text, status) {
     return message
   }
   return message
+}
+
+function normalizeProviderCredentials(providerId, credentials) {
+  const base = {}
+  Object.entries(credentials || {}).forEach(([key, value]) => {
+    if (value == null) {
+      return
+    }
+    const text = String(value).trim()
+    if (text) {
+      base[key] = text
+    }
+  })
+  if (providerId !== 'deepseek') {
+    return base
+  }
+  const authorization = firstNonBlank(base.authorization, base.Authorization)
+  const cookie = firstNonBlank(base.cookie, base.cookies)
+  const token = firstNonBlank(
+    unwrapDeepSeekToken(base.token),
+    unwrapDeepSeekToken(base.userToken),
+    unwrapDeepSeekToken(base.accessToken),
+    unwrapDeepSeekToken(base.access_token),
+    unwrapDeepSeekToken(base.apiKey),
+    unwrapDeepSeekToken(base.refreshToken),
+    unwrapDeepSeekToken(base.refresh_token),
+    unwrapDeepSeekToken(authorization),
+  )
+  if (authorization) {
+    base.authorization = authorization
+    base.Authorization = authorization
+  }
+  if (cookie) {
+    base.cookie = cookie
+    base.cookies = cookie
+  }
+  if (token) {
+    base.token = token
+    base.userToken = token
+  }
+  return base
+}
+
+function unwrapDeepSeekToken(value) {
+  const text = stripBearerPrefix(value)
+  if (!text) {
+    return ''
+  }
+  if ((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'))) {
+    try {
+      const parsed = JSON.parse(text)
+      const extracted = tokenFromObject(parsed)
+      return extracted || ''
+    } catch (_) {
+      return text
+    }
+  }
+  return text
+}
+
+function tokenFromObject(value) {
+  if (value == null) {
+    return ''
+  }
+  if (typeof value === 'string') {
+    const normalized = stripBearerPrefix(value)
+    return normalized && normalized !== 'null' && normalized !== 'undefined' ? normalized : ''
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const extracted = tokenFromObject(item)
+      if (extracted) {
+        return extracted
+      }
+    }
+    return ''
+  }
+  if (typeof value !== 'object') {
+    return ''
+  }
+  for (const key of ['value', 'token', 'accessToken', 'access_token', 'userToken', 'refreshToken', 'refresh_token']) {
+    const extracted = tokenFromObject(value[key])
+    if (extracted) {
+      return extracted
+    }
+  }
+  for (const key of ['data', 'biz_data', 'payload', 'result']) {
+    const extracted = tokenFromObject(value[key])
+    if (extracted) {
+      return extracted
+    }
+  }
+  return ''
+}
+
+function stripBearerPrefix(value) {
+  return value == null ? '' : String(value).trim().replace(/^bearer\s+/i, '')
+}
+
+function firstNonBlank(...values) {
+  return values.find((value) => value && String(value).trim()) || ''
 }
 
 module.exports = { createBackendClient }

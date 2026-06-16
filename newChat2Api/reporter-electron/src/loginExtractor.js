@@ -1,4 +1,5 @@
 const { BrowserWindow, session } = require('electron')
+const { normalizeProviderCredentials } = require('./credentialNormalizer')
 
 function createLoginExtractor(providers, emit) {
   let loginWindow
@@ -46,7 +47,7 @@ function createLoginExtractor(providers, emit) {
         completed = true
         try {
           const extracted = await extractFromWindow(loginWindow, provider)
-          const credentials = { ...intercepted, ...extracted.credentials }
+          const credentials = normalizeProviderCredentials(provider.id, { ...intercepted, ...extracted.credentials })
           const account = { ...extractAccountInfo(credentials), ...extracted.account }
           resolve({ providerId, credentials, account })
         } catch (error) {
@@ -113,13 +114,10 @@ async function extractFromWindow(loginWindow, provider) {
       credentials[key] = sessionStorage[key]
     }
   })
-  if (provider.id === 'deepseek' && !credentials.token && credentials.userToken) {
-    credentials.token = credentials.userToken
-  }
   if (cookieText) {
     credentials.cookie = cookieText
   }
-  return { credentials, account }
+  return { credentials: normalizeProviderCredentials(provider.id, credentials), account }
 }
 
 function extractAccountInfo(source) {

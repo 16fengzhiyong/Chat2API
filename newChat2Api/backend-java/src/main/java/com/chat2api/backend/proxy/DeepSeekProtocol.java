@@ -1,5 +1,6 @@
 package com.chat2api.backend.proxy;
 
+import com.chat2api.backend.support.DeepSeekCredentialSupport;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -13,6 +14,10 @@ import java.util.UUID;
 
 public class DeepSeekProtocol {
     public static final String BASE_URL = "https://chat.deepseek.com/api";
+    public static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0";
+    public static final String APP_VERSION = "2.0.0";
+    public static final String CLIENT_VERSION = "2.0.0";
+    public static final String CLIENT_LOCALE = "zh_CN";
     private final ObjectMapper objectMapper;
 
     public DeepSeekProtocol(ObjectMapper objectMapper) {
@@ -20,22 +25,14 @@ public class DeepSeekProtocol {
     }
 
     public String refreshToken(Map<String, String> credentials) {
-        return first(credentials, "token", "apiKey", "refreshToken", "refresh_token", "accessToken", "access_token");
+        return DeepSeekCredentialSupport.token(credentials);
     }
 
     public HttpHeaders headers(String token, String cookie, String referer) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setAccept(List.of(MediaType.ALL));
-        headers.set(HttpHeaders.ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9,en;q=0.8");
-        headers.set(HttpHeaders.ORIGIN, "https://chat.deepseek.com");
-        headers.set(HttpHeaders.REFERER, referer == null ? "https://chat.deepseek.com/" : referer);
-        headers.set(HttpHeaders.USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36");
-        headers.set("X-App-Version", "20241129.1");
-        headers.set("X-Client-Locale", "zh-CN");
-        headers.set("X-Client-Platform", "web");
-        headers.set("X-Client-Version", "1.8.0");
-        headers.set("x-Client-Timezone-Offset", "28800");
+        applyCommonHeaders(headers, referer);
         if (token != null && !token.isBlank()) {
             headers.setBearerAuth(stripBearer(token));
         }
@@ -46,7 +43,7 @@ public class DeepSeekProtocol {
     }
 
     public String cookie(Map<String, String> credentials) {
-        String existing = first(credentials, "cookie", "cookies");
+        String existing = DeepSeekCredentialSupport.cookie(credentials);
         if (existing != null && !existing.isBlank()) {
             return existing;
         }
@@ -77,8 +74,27 @@ public class DeepSeekProtocol {
         body.put("ref_file_ids", List.of());
         body.put("search_enabled", options.searchEnabled());
         body.put("thinking_enabled", options.thinkingEnabled());
+        body.put("action", request.containsKey("action") ? request.get("action") : null);
         body.put("preempt", false);
         return body;
+    }
+
+    public static void applyCommonHeaders(HttpHeaders headers, String referer) {
+        headers.set(HttpHeaders.ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6");
+        headers.set(HttpHeaders.ORIGIN, "https://chat.deepseek.com");
+        headers.set(HttpHeaders.REFERER, referer == null || referer.isBlank() ? "https://chat.deepseek.com/" : referer);
+        headers.set(HttpHeaders.USER_AGENT, USER_AGENT);
+        headers.set("X-App-Version", APP_VERSION);
+        headers.set("X-Client-Locale", CLIENT_LOCALE);
+        headers.set("X-Client-Platform", "web");
+        headers.set("X-Client-Version", CLIENT_VERSION);
+        headers.set("x-Client-Timezone-Offset", "28800");
+    }
+
+    public static String sessionReferer(String sessionId) {
+        return sessionId == null || sessionId.isBlank()
+                ? "https://chat.deepseek.com/"
+                : "https://chat.deepseek.com/a/chat/s/" + sessionId;
     }
 
     public String messagesToPrompt(Map<String, Object> request) {
