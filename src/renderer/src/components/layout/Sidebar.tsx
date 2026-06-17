@@ -14,6 +14,7 @@ import {
   Info,
   MessageSquare,
   AlertTriangle,
+  FlaskConical,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -40,6 +41,7 @@ const navItems: NavItem[] = [
   { titleKey: 'nav.proxy', href: '/proxy', icon: Settings2 },
   { titleKey: 'nav.models', href: '/models', icon: Cpu },
   { titleKey: 'nav.session', href: '/session', icon: MessageSquare },
+  { titleKey: 'nav.testChat', href: '/test-chat', icon: FlaskConical },
   { titleKey: 'nav.apiKeys', href: '/api-keys', icon: Key },
   { titleKey: 'nav.logs', href: '/logs', icon: FileText },
   { titleKey: 'nav.settings', href: '/settings', icon: Settings },

@@ -15,6 +15,7 @@
     "apiKeys": "API Keys",
     "logs": "Logs",
     "session": "Session",
+    "testChat": "Test Chat",
     "settings": "Settings",
     "about": "About"
   },
@@ -1080,5 +1081,34 @@
       "customPromptPlaceholder": "Enter custom summary prompt...",
       "customPromptHint": "Leave empty to use default prompt"
     }
+  },
+  "testChat": {
+    "title": "Test Chat",
+    "connection": "Connection",
+    "baseUrl": "API URL",
+    "apiKey": "API Key (optional)",
+    "testConnection": "Test Connection",
+    "disconnected": "Disconnected",
+    "presets": "Presets",
+    "config": "Configuration",
+    "model": "Model",
+    "mode": "Mode",
+    "modeChat": "Chat",
+    "modeImage": "Image",
+    "modeVideo": "Video",
+    "size": "Size / Ratio",
+    "stream": "Stream",
+    "refImage": "Reference Image",
+    "refImageHint": "Provide a reference image URL for i2i or i2v",
+    "emptyHint": "Type a message to start testing",
+    "inputPlaceholder": "Type a message... (Enter to send, Shift+Enter for newline)",
+    "send": "Send",
+    "cancel": "Cancel",
+    "clear": "Clear",
+    "thinking": "Thinking",
+    "generating": "Generating...",
+    "generatingVideo": "Generating video, please wait...",
+    "copyUrl": "Copy URL",
+    "copied": "Copied"
   }
 }

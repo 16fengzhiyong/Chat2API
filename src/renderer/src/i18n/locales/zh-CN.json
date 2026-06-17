@@ -15,6 +15,7 @@
     "apiKeys": "API Key",
     "logs": "日志",
     "session": "会话管理",
+    "testChat": "测试聊天",
     "settings": "设置",
     "about": "关于"
   },
@@ -1080,5 +1081,34 @@
       "customPromptPlaceholder": "输入自定义摘要提示词...",
       "customPromptHint": "留空使用默认提示词"
     }
+  },
+  "testChat": {
+    "title": "测试聊天",
+    "connection": "连接",
+    "baseUrl": "API 地址",
+    "apiKey": "API Key (可选)",
+    "testConnection": "测试连接",
+    "disconnected": "未连接",
+    "presets": "快捷预设",
+    "config": "配置",
+    "model": "模型",
+    "mode": "模式",
+    "modeChat": "对话",
+    "modeImage": "生图",
+    "modeVideo": "生视频",
+    "size": "尺寸 / 宽高比",
+    "stream": "流式输出",
+    "refImage": "参考图",
+    "refImageHint": "图生图/图生视频时输入参考图URL",
+    "emptyHint": "输入消息开始测试",
+    "inputPlaceholder": "输入消息... (Enter 发送, Shift+Enter 换行)",
+    "send": "发送",
+    "cancel": "取消",
+    "clear": "清空",
+    "thinking": "思考过程",
+    "generating": "生成中...",
+    "generatingVideo": "视频生成中，请等待...",
+    "copyUrl": "复制链接",
+    "copied": "已复制"
   }
 }
