@@ -355,7 +355,7 @@ export class QwenAiAdapter {
                 },
                 collection_name: '',
                 progress: 0,
-                status: 'complete',
+                status: 'uploaded',
                 greenNet: 'success',
                 error: '',
                 itemId: uuid(),
