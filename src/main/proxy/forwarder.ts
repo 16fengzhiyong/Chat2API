@@ -842,7 +842,16 @@ export class RequestForwarder {
       }
 
       // Video generation: poll task and return stream
-      if ((chatType === 't2v' || chatType === 'i2v') && taskId) {
+      if (chatType === 't2v' || chatType === 'i2v') {
+        if (!taskId) {
+          return {
+            success: false,
+            status: 502,
+            error: 'Failed to extract video task ID from Qwen AI response',
+            latency,
+          }
+        }
+
         console.log('[QwenAI] Video generation mode, taskId:', taskId)
 
         const onEnd = shouldDeleteSession()
